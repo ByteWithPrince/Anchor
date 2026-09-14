@@ -1,0 +1,12 @@
+# Robots.txt for Anchor Fitness OS
+# https://github.com/ByteWithPrince
+
+User-agent: *
+Allow: /
+Allow: /landing
+Allow: /privacy
+Allow: /terms
+Allow: /thank-you
+Disallow: /api/
+
+Sitemap: https://anchor.app/sitemap.xml
