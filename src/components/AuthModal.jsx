@@ -7,7 +7,6 @@ import { useStore } from '../store/useStore';
 export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSuccess }) {
   const navigate = useNavigate();
   const [mode, setMode] = useState(initialMode);
-  const [prevInitialMode, setPrevInitialMode] = useState(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -18,7 +17,15 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
 
   const loginUser = useStore(s => s.loginUser);
   const registerUser = useStore(s => s.registerUser);
+  const loginWithGoogle = useStore(s => s.loginWithGoogle);
   const loginGuest = useStore(s => s.loginGuest);
+
+  // Sync mode whenever initialMode prop changes
+  useEffect(() => {
+    setMode(initialMode);
+    setErrors({});
+    setGeneralError('');
+  }, [initialMode]);
 
   // Keyboard ESC listener
   useEffect(() => {
@@ -30,10 +37,50 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (initialMode !== prevInitialMode) {
-    setPrevInitialMode(initialMode);
-    setMode(initialMode);
-  }
+  // Dynamic Google Identity Services (GIS) script integration
+  useEffect(() => {
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!isOpen || !googleClientId) return;
+
+    const initGsi = () => {
+      try {
+        if (window.google?.accounts?.id) {
+          window.google.accounts.id.initialize({
+            client_id: googleClientId,
+            callback: async (response) => {
+              if (response.credential) {
+                setLoading(true);
+                try {
+                  await loginWithGoogle({ credential: response.credential });
+                  onClose();
+                  if (onSuccess) onSuccess();
+                  else navigate('/dashboard');
+                } catch (err) {
+                  setGeneralError(err.message || 'Google sign-in failed.');
+                } finally {
+                  setLoading(false);
+                }
+              }
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[GIS] Init notice:', e);
+      }
+    };
+
+    if (!document.getElementById('anchor-google-gsi')) {
+      const script = document.createElement('script');
+      script.id = 'anchor-google-gsi';
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = initGsi;
+      document.body.appendChild(script);
+    } else {
+      initGsi();
+    }
+  }, [isOpen]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 
@@ -80,6 +127,45 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
       }
     } catch (err) {
       setGeneralError(err.message || 'Authentication failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGeneralError('');
+    const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+    // Trigger official Google GIS prompt if Client ID is configured
+    if (googleClientId && window.google?.accounts?.id) {
+      try {
+        window.google.accounts.id.prompt();
+        return;
+      } catch (e) {
+        console.warn('[GIS] Prompt fallback:', e);
+      }
+    }
+
+    // Graceful developer & offline fallback flow
+    setLoading(true);
+    try {
+      const googleEmail = email.trim() || 'athlete.google@gmail.com';
+      const googleName = name.trim() || googleEmail.split('@')[0].replace(/[._]/g, ' ');
+      await loginWithGoogle({
+        email: googleEmail,
+        name: googleName.charAt(0).toUpperCase() + googleName.slice(1),
+        googleId: `gid_${Date.now()}`,
+        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(googleEmail)}`
+      });
+
+      onClose();
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      setGeneralError(err.message || 'Google authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -253,10 +339,10 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} method="post" action="#" autoComplete="on">
           {mode === 'register' && (
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
+              <label htmlFor="auth-name" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
                 ATHLETE NAME
               </label>
               <div 
@@ -270,7 +356,10 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
               >
                 <User size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
                 <input
+                  id="auth-name"
+                  name="name"
                   type="text"
+                  autoComplete="name"
                   placeholder="e.g. Alex Rivera"
                   value={name}
                   onChange={(e) => { setName(e.target.value); if (errors.name) setErrors(prev => ({ ...prev, name: '' })); }}
@@ -291,7 +380,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
 
           {mode === 'register' && (
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
+              <label htmlFor="auth-role" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
                 PRIMARY TRAINING FOCUS
               </label>
               <div 
@@ -301,6 +390,8 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 }}
               >
                 <select
+                  id="auth-role"
+                  name="role"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   style={{
@@ -324,7 +415,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
           )}
 
           <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
+            <label htmlFor="auth-email" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
               EMAIL ADDRESS
             </label>
             <div 
@@ -338,7 +429,10 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
             >
               <Mail size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
               <input
+                id="auth-email"
+                name="email"
                 type="email"
+                autoComplete="username email"
                 placeholder="athlete@domain.com"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); if (errors.email) setErrors(prev => ({ ...prev, email: '' })); }}
@@ -357,7 +451,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
           </div>
 
           <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
+            <label htmlFor="auth-password" style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#8E8E93', marginBottom: '8px', letterSpacing: '0.5px' }}>
               PASSWORD (MIN 6 CHARS)
             </label>
             <div 
@@ -371,7 +465,10 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
             >
               <Lock size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
               <input
+                id="auth-password"
+                name="password"
                 type="password"
+                autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); if (errors.password) setErrors(prev => ({ ...prev, password: '' })); }}
@@ -408,7 +505,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
               cursor: loading ? 'not-allowed' : 'pointer',
               opacity: loading ? 0.7 : 1,
               transition: 'all 0.2s ease',
-              marginBottom: '16px'
+              marginBottom: '12px'
             }}
           >
             {loading ? (
@@ -424,6 +521,45 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 <span>Create Cloud Account</span>
               </>
             )}
+          </button>
+
+          {/* Divider */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '16px 0' }}>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.08)' }} />
+            <span style={{ fontSize: '11px', color: '#8E8E93', fontWeight: 700, letterSpacing: '0.6px' }}>OR</span>
+            <div style={{ flex: 1, height: '1px', background: 'rgba(255, 255, 255, 0.08)' }} />
+          </div>
+
+          {/* Active Continue with Google Button */}
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            style={{
+              width: '100%',
+              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+              color: '#FFFFFF',
+              padding: '14px',
+              borderRadius: '14px',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              fontWeight: 600,
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
+              marginBottom: '14px'
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.836.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            <span>Continue with Google</span>
           </button>
 
           {/* Continue Offline Option */}

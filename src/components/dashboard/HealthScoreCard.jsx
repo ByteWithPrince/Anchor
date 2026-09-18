@@ -1,14 +1,22 @@
-import { MoreHorizontal } from 'lucide-react';
-import { useStore } from '../../store/useStore';
+import { GripVertical, ShieldCheck } from 'lucide-react';
+import { useStore, getTodayStr } from '../../store/useStore';
 
-export default function HealthScoreCard() {
+export default function HealthScoreCard({ dragHandleProps }) {
   const getHealthScore = useStore(state => state.getHealthScore);
   const getActiveProfile = useStore(state => state.getActiveProfile);
+  const foodLogs = useStore(state => state.foodLogs);
+  const workoutLogs = useStore(state => state.workoutLogs);
+  const activeWorkout = useStore(state => state.activeWorkout);
+
   const activeProfile = getActiveProfile ? getActiveProfile() : null;
   const profileFirstName = activeProfile?.name?.split(' ')[0] || 'Athlete';
 
+  const todayStr = getTodayStr();
+  const hasFood = foodLogs.some(f => f.date === todayStr);
+  const hasWorkout = workoutLogs.some(w => w.date === todayStr) || activeWorkout?.date === todayStr;
+
   const rawScore = getHealthScore ? getHealthScore() : 0;
-  const score = typeof rawScore === 'number' ? rawScore : 0;
+  const score = (!hasFood && !hasWorkout) ? 0 : Math.min(100, Math.max(0, rawScore));
 
   const totalDashes = 6;
   const activeDashes = score === 0 ? 0 : Math.max(1, Math.round((score / 100) * totalDashes));
@@ -26,13 +34,17 @@ export default function HealthScoreCard() {
       border: 'var(--glass-border)',
       boxShadow: 'var(--glass-shadow)'
     }}>
-      {/* Header: Title + ... Button */}
+      {/* Header: Title + Drag Handle Button */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
           Health Score
         </h2>
-        <button 
-          aria-label="Health Score Options"
+        <div 
+          {...dragHandleProps}
+          role="button"
+          tabIndex={0}
+          aria-label="Move Card"
+          title="Drag to rearrange dashboard cards"
           style={{
             width: '32px',
             height: '32px',
@@ -41,11 +53,13 @@ export default function HealthScoreCard() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#8E8E93'
+            color: '#8E8E93',
+            cursor: 'grab',
+            transition: 'all 0.2s ease'
           }}
         >
-          <MoreHorizontal size={18} />
-        </button>
+          <GripVertical size={16} />
+        </div>
       </div>
 
       {/* Metric Row: Score% + Health Badge */}
@@ -62,13 +76,14 @@ export default function HealthScoreCard() {
         <span style={{
           fontSize: '11px',
           fontWeight: '700',
-          background: '#333333',
-          color: score >= 80 ? '#00D09C' : '#E0E0E0',
-          padding: '4px 8px',
-          borderRadius: '6px',
+          background: score >= 80 ? 'rgba(0, 208, 156, 0.15)' : '#222222',
+          border: score >= 80 ? '1px solid rgba(0, 208, 156, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+          color: score >= 80 ? '#00D09C' : score >= 50 ? '#F4C767' : '#E0E0E0',
+          padding: '4px 10px',
+          borderRadius: '9999px',
           letterSpacing: '0.2px'
         }}>
-          {score === 0 ? 'Not Logged' : score >= 80 ? 'Very Healthy' : score >= 60 ? 'Optimal' : 'Needs Focus'}
+          {score === 0 ? 'Not Logged' : score >= 80 ? 'Optimal Score' : score >= 60 ? 'Good Progress' : 'In Progress'}
         </span>
       </div>
 
@@ -85,7 +100,7 @@ export default function HealthScoreCard() {
             style={{
               height: '8px',
               borderRadius: '9999px',
-              backgroundColor: i < activeDashes ? '#00D09C' : '#333333',
+              backgroundColor: i < activeDashes ? '#00D09C' : 'rgba(255, 255, 255, 0.08)',
               transition: 'background-color 0.3s ease'
             }}
           />
@@ -100,8 +115,8 @@ export default function HealthScoreCard() {
         margin: 0
       }}>
         {score === 0 
-          ? `Log activity or nutrition to calculate score` 
-          : `Keep up your good work, ${profileFirstName}!`}
+          ? `Log workouts or meals to compute daily health index` 
+          : `Calculated from nutrition adherence & training volume for ${profileFirstName}`}
       </p>
     </div>
   );

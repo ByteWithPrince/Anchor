@@ -1,28 +1,50 @@
 import { useState } from 'react';
-import { ChevronDown, Zap, Droplet } from 'lucide-react';
+import { GripVertical, Zap, Droplet } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore, getTodayStr } from '../../store/useStore';
 
-export default function CalorieAnalysisCard() {
+export default function CalorieAnalysisCard({ dragHandleProps }) {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState('Weekly');
+  const [filter, setFilter] = useState('Daily');
   const plan = useStore(state => state.plan);
   const foodLogs = useStore(state => state.foodLogs);
   const todayStr = getTodayStr();
 
-  const todayFoods = foodLogs.filter(f => f.date === todayStr);
-
+  // Targets
   const targetCalories = Number(plan?.macroTargets?.calories) || 2100;
   const targetProtein = Number(plan?.macroTargets?.protein) || 180;
   const targetCarbs = Number(plan?.macroTargets?.carbs) || 182;
   const targetFat = Number(plan?.macroTargets?.fat) || 65;
 
-  const currentCalories = todayFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0);
-  const currentProtein = todayFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0);
-  const currentCarbs = todayFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0);
-  const currentFat = todayFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0);
+  // Daily logs
+  const todayFoods = foodLogs.filter(f => f.date === todayStr);
+  const todayCalories = todayFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0);
+  const todayProtein = todayFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0);
+  const todayCarbs = todayFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0);
+  const todayFat = todayFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0);
 
-  // 4 Macro Rows (Calories, Carbs, Fat, Protein) — removed duplicate Fat/fiber row
+  // Weekly 7-day average calculation
+  const past7Dates = [];
+  const now = new Date();
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    past7Dates.push(d.toISOString().split('T')[0]);
+  }
+  const weekFoods = foodLogs.filter(f => past7Dates.includes(f.date));
+  const weekAvgCalories = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0) / 7);
+  const weekAvgProtein = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0) / 7);
+  const weekAvgCarbs = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0) / 7);
+  const weekAvgFat = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0) / 7);
+
+  const currentCalories = filter === 'Daily' ? todayCalories : weekAvgCalories;
+  const currentProtein = filter === 'Daily' ? todayProtein : weekAvgProtein;
+  const currentCarbs = filter === 'Daily' ? todayCarbs : weekAvgCarbs;
+  const currentFat = filter === 'Daily' ? todayFat : weekAvgFat;
+
+  const unitText = filter === 'Daily' ? 'Today' : 'Daily avg';
+
+  // 4 Macro Rows (Calories, Carbs, Fat, Protein)
   const rows = [
     {
       id: 'cal',
@@ -30,7 +52,7 @@ export default function CalorieAnalysisCard() {
       icon: Zap,
       color: '#00D09C',
       intake: currentCalories > 0 ? `${currentCalories} kcal` : '0 kcal',
-      unit: 'Avg intake',
+      unit: unitText,
       goal: `${targetCalories}.00`,
       pct: `${Math.min(100, Math.round((currentCalories / targetCalories) * 100))}%`
     },
@@ -40,7 +62,7 @@ export default function CalorieAnalysisCard() {
       icon: Zap,
       color: '#F4C767',
       intake: currentCarbs > 0 ? `${currentCarbs} g` : '0 g',
-      unit: 'Avg intake',
+      unit: unitText,
       goal: `${targetCarbs}.00`,
       pct: `${Math.min(100, Math.round((currentCarbs / targetCarbs) * 100))}%`
     },
@@ -50,7 +72,7 @@ export default function CalorieAnalysisCard() {
       icon: Droplet,
       color: '#FF7243',
       intake: currentFat > 0 ? `${currentFat} g` : '0 g',
-      unit: 'Avg intake',
+      unit: unitText,
       goal: `${targetFat}.00`,
       pct: `${Math.min(100, Math.round((currentFat / targetFat) * 100))}%`
     },
@@ -60,7 +82,7 @@ export default function CalorieAnalysisCard() {
       icon: Zap,
       color: '#B2E040',
       intake: currentProtein > 0 ? `${currentProtein} g` : '0 g',
-      unit: 'Avg intake',
+      unit: unitText,
       goal: `${targetProtein}.00`,
       pct: `${Math.min(100, Math.round((currentProtein / targetProtein) * 100))}%`
     }
@@ -84,31 +106,84 @@ export default function CalorieAnalysisCard() {
       flexDirection: 'column',
       justifyContent: 'space-between',
       border: 'var(--glass-border)',
-      boxShadow: 'var(--glass-shadow)'
+      boxShadow: 'var(--glass-shadow)',
+      height: '100%'
     }}>
-      {/* Header: Title + Weekly dropdown pill */}
+      {/* Header: Title + Segmented Pill + Grip Drag Handle */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
           Calories Analysis
         </h2>
-        <button
-          onClick={() => setFilter(filter === 'Weekly' ? 'Daily' : 'Weekly')}
-          style={{
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Frosted Segmented Toggle Pill */}
+          <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            background: '#2D2D2D',
-            padding: '6px 14px',
+            background: 'rgba(255, 255, 255, 0.05)',
             borderRadius: '9999px',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            fontSize: '12px',
-            fontWeight: '600',
-            color: '#CCCCCC'
-          }}
-        >
-          <span>{filter}</span>
-          <ChevronDown size={14} color="#8E8E93" />
-        </button>
+            padding: '2px',
+            border: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <button
+              type="button"
+              onClick={() => setFilter('Daily')}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '9999px',
+                fontSize: '11px',
+                fontWeight: '600',
+                border: 'none',
+                cursor: 'pointer',
+                background: filter === 'Daily' ? 'rgba(255, 255, 255, 0.16)' : 'transparent',
+                color: filter === 'Daily' ? '#FFFFFF' : '#8E8E93',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Daily
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilter('Weekly')}
+              style={{
+                padding: '4px 10px',
+                borderRadius: '9999px',
+                fontSize: '11px',
+                fontWeight: '600',
+                border: 'none',
+                cursor: 'pointer',
+                background: filter === 'Weekly' ? 'rgba(255, 255, 255, 0.16)' : 'transparent',
+                color: filter === 'Weekly' ? '#FFFFFF' : '#8E8E93',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              Weekly
+            </button>
+          </div>
+
+          {/* Grip Drag Handle */}
+          <div 
+            {...dragHandleProps}
+            role="button"
+            tabIndex={0}
+            aria-label="Move Card"
+            title="Drag to rearrange dashboard cards"
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#8E8E93',
+              cursor: 'grab',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <GripVertical size={16} />
+          </div>
+        </div>
       </div>
 
       {/* Top 4-Color Segmented Proportional Bar */}
@@ -126,7 +201,7 @@ export default function CalorieAnalysisCard() {
         <div style={{ flex: flexProt, height: '100%', borderRadius: '9999px', background: '#B2E040', transition: 'flex 0.4s ease' }} title={`Protein: ${currentProtein}g`} />
       </div>
 
-      {/* 5 Intake Rows */}
+      {/* 4 Intake Rows */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
         {rows.map((row, idx) => {
           const IconComp = row.icon;

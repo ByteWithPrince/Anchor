@@ -5,13 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.js",
+    "server:watch": "node --watch-path=server/index.js --watch-path=server/routes --watch-path=server/middleware server/index.js",
+    "start": "node server/index.js",
+    "dev:all": "concurrently -n \"client,server\" -c \"cyan,magenta\" \"vite\" \"node server/index.js\"",
+    "test:backend": "node server/test_backend.js",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "dotenv": "^18.0.0",
     "express": "^5.2.1",
     "idb-keyval": "^6.3.0",
     "jsonwebtoken": "^9.0.3",

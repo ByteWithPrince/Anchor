@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { idbStorage } from '../services/db';
 import { authService } from '../services/authService';
+import { syncEngine } from '../services/syncEngine';
 import { WORKOUT_PRESETS } from '../data/workoutPresets';
 
 export const getTodayStr = (offsetDays = 0) => {
@@ -77,6 +78,7 @@ export const useStore = create(
       sleepLogs: [],
       cardioLogs: [],
       heartRateLogs: [],
+      dashboardCardOrder: ['activity', 'workout-goals', 'health-score', 'heart-beat', 'weight-body', 'calorie-analysis', 'distance'],
 
       // Custom Routines Library & Progression Tracking
       customRoutines: [
@@ -159,34 +161,25 @@ export const useStore = create(
         });
 
         if (state.authToken && state.currentUser && !state.currentUser.isGuest) {
-          authService.syncToCloud(snapshot).catch(err => console.warn('Auto-sync notice:', err));
+          syncEngine.scheduleFlush(2000);
         }
       },
 
       loginUser: async (email, password) => {
-        const { token, user } = await authService.login(email, password);
         const state = get();
+        const guestData = state.currentUser?.isGuest ? {
+          workouts: state.workoutLogs,
+          nutrition: state.foodLogs,
+          routines: state.customRoutines,
+          plan: state.plan,
+          bodyweight: state.weightLogs
+        } : null;
 
-        // 1. Snapshot prior profile if any
+        const { token, user } = await authService.login(email, password, guestData);
+
+        // Snapshot prior profile if any
         if (state.activeProfileId && state.activeProfileId !== user.id) {
           state.persistCurrentUserData();
-        }
-
-        // 2. Fetch remote cloud data
-        let userDataToLoad = null;
-        try {
-          const remote = await authService.fetchFromCloud();
-          if (remote && remote.data) {
-            userDataToLoad = remote.data;
-          }
-        } catch (e) {
-          console.warn('Cloud sync fetch on login failed:', e);
-        }
-
-        // 3. Fallback to local snapshot or clean defaults
-        if (!userDataToLoad) {
-          userDataToLoad = state.userDataByProfile[user.id] || createDefaultUserData(2500);
-          authService.syncToCloud(userDataToLoad).catch(() => {});
         }
 
         const userProfile = {
@@ -195,7 +188,7 @@ export const useStore = create(
           role: user.role || 'Athlete',
           email: user.email,
           weight: 75,
-          targetCalories: Number(userDataToLoad.plan?.macroTargets?.calories) || 2500,
+          targetCalories: 2500,
           avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
         };
 
@@ -204,39 +197,33 @@ export const useStore = create(
           currentUser: user,
           activeProfileId: user.id,
           profiles: [...state.profiles.filter(p => p.id !== user.id), userProfile],
-          userDataByProfile: {
-            ...state.userDataByProfile,
-            [user.id]: userDataToLoad
-          },
-          workoutLogs: userDataToLoad.workoutLogs || [],
-          foodLogs: userDataToLoad.foodLogs || [],
-          weightLogs: userDataToLoad.weightLogs || [],
-          sleepLogs: userDataToLoad.sleepLogs || [],
-          cardioLogs: userDataToLoad.cardioLogs || [],
-          heartRateLogs: userDataToLoad.heartRateLogs || [],
-          customRoutines: userDataToLoad.customRoutines || [],
-          activePresetId: userDataToLoad.activePresetId || 'ppl-6day',
-          lastCompletedRoutineName: userDataToLoad.lastCompletedRoutineName || null,
-          plan: userDataToLoad.plan || createDefaultUserData().plan,
           activeWorkout: null,
           isSetupComplete: true
         });
+
+        // Immediately trigger full cloud sync to pull normalized server state
+        await syncEngine.fullSync(0);
 
         return user;
       },
 
       registerUser: async (email, password, name, role) => {
-        const { token, user } = await authService.register(email, password, name, role);
         const state = get();
+        const guestData = state.currentUser?.isGuest ? {
+          workouts: state.workoutLogs,
+          nutrition: state.foodLogs,
+          routines: state.customRoutines,
+          plan: state.plan,
+          bodyweight: state.weightLogs
+        } : null;
 
-        // 1. Snapshot prior state if any
+        const { token, user } = await authService.register(email, password, name, role, guestData);
+
         if (state.activeProfileId) {
           state.persistCurrentUserData();
         }
 
-        // 2. Initialize a brand-new, clean user state
         const cleanData = createDefaultUserData(2500);
-
         const newProfile = {
           id: user.id,
           name: user.name,
@@ -260,8 +247,48 @@ export const useStore = create(
           ...cleanData
         });
 
-        // 3. Push fresh clean state to cloud
-        await authService.syncToCloud(cleanData);
+        // Immediately trigger full cloud sync to pull normalized server state
+        await syncEngine.fullSync(0);
+        return user;
+      },
+
+      loginWithGoogle: async ({ credential, email, name, googleId, avatar }) => {
+        const state = get();
+        const guestData = state.currentUser?.isGuest ? {
+          workouts: state.workoutLogs,
+          nutrition: state.foodLogs,
+          routines: state.customRoutines,
+          plan: state.plan,
+          bodyweight: state.weightLogs
+        } : null;
+
+        const { token, user } = await authService.loginWithGoogle({ credential, email, name, googleId, avatar, guestData });
+
+        if (state.activeProfileId && state.activeProfileId !== user.id) {
+          state.persistCurrentUserData();
+        }
+
+        const userProfile = {
+          id: user.id,
+          name: user.name,
+          role: user.role || 'Athlete',
+          email: user.email,
+          weight: 75,
+          targetCalories: 2500,
+          avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
+        };
+
+        set({
+          authToken: token,
+          currentUser: user,
+          activeProfileId: user.id,
+          profiles: [...state.profiles.filter(p => p.id !== user.id), userProfile],
+          activeWorkout: null,
+          isSetupComplete: true
+        });
+
+        // Full rehydration
+        await syncEngine.fullSync(0);
         return user;
       },
 
@@ -320,14 +347,91 @@ export const useStore = create(
 
       logoutUser: () => {
         const state = get();
-        if (state.activeProfileId) {
+        if (state.activeProfileId && !state.currentUser?.isGuest) {
           state.persistCurrentUserData();
         }
-        authService.clearAuth();
+        syncEngine.flush().catch(() => {});
+        authService.logout();
+
+        const defaultData = createDefaultUserData(2500);
         set({
           authToken: null,
           currentUser: null,
-          activeWorkout: null
+          activeProfileId: 'guest-athlete',
+          activeWorkout: null,
+          workoutLogs: [],
+          foodLogs: [],
+          weightLogs: [],
+          sleepLogs: [],
+          cardioLogs: [],
+          heartRateLogs: [],
+          customRoutines: defaultData.customRoutines,
+          plan: defaultData.plan
+        });
+      },
+
+      /**
+       * Reconciles a server delta payload into Zustand state.
+       */
+      applyServerDelta: (delta) => {
+        if (!delta) return;
+        const state = get();
+        const { workouts = [], nutrition = [], routines = [], plan = null, bodyweight = [] } = delta;
+
+        // 1. Reconcile Workouts
+        let mergedWorkouts = [...state.workoutLogs];
+        for (const s of workouts) {
+          if (s.deleted) {
+            mergedWorkouts = mergedWorkouts.filter(w => w.id !== s.id);
+          } else {
+            const idx = mergedWorkouts.findIndex(w => w.id === s.id);
+            if (idx >= 0) mergedWorkouts[idx] = { ...mergedWorkouts[idx], ...s };
+            else mergedWorkouts.unshift(s);
+          }
+        }
+
+        // 2. Reconcile Nutrition
+        let mergedNutrition = [...state.foodLogs];
+        for (const f of nutrition) {
+          if (f.deleted) {
+            mergedNutrition = mergedNutrition.filter(food => food.id !== f.id);
+          } else {
+            const idx = mergedNutrition.findIndex(food => food.id === f.id);
+            if (idx >= 0) mergedNutrition[idx] = { ...mergedNutrition[idx], ...f };
+            else mergedNutrition.unshift(f);
+          }
+        }
+
+        // 3. Reconcile Routines
+        let mergedRoutines = [...(state.customRoutines || [])];
+        for (const r of routines) {
+          if (r.deleted) {
+            mergedRoutines = mergedRoutines.filter(rtn => rtn.id !== r.id);
+          } else {
+            const idx = mergedRoutines.findIndex(rtn => rtn.id === r.id);
+            if (idx >= 0) mergedRoutines[idx] = { ...mergedRoutines[idx], ...r };
+            else mergedRoutines.push(r);
+          }
+        }
+
+        // 4. Reconcile Plan
+        const updatedPlan = plan ? { ...state.plan, ...plan } : state.plan;
+
+        // 5. Reconcile Bodyweight
+        let mergedWeight = [...(state.weightLogs || [])];
+        for (const bw of bodyweight) {
+          const idx = mergedWeight.findIndex(w => w.date === bw.date);
+          if (idx >= 0) mergedWeight[idx] = { ...mergedWeight[idx], weight: bw.weight };
+          else mergedWeight.push({ id: bw.id || `bw_${bw.date}`, date: bw.date, weight: bw.weight, timestamp: bw.timestamp || Date.now() });
+        }
+
+        set({
+          workoutLogs: mergedWorkouts,
+          foodLogs: mergedNutrition,
+          customRoutines: mergedRoutines,
+          plan: updatedPlan,
+          weightLogs: mergedWeight,
+          lastSyncTime: Date.now()
         });
       },
 
@@ -525,21 +629,27 @@ export const useStore = create(
       completeSetup: () => set({ isSetupComplete: true }),
       
       updatePlan: (newPlan) => {
-        set({ plan: { ...get().plan, ...newPlan } });
+        const updated = { ...get().plan, ...newPlan };
+        set({ plan: updated });
         get().persistCurrentUserData();
+        syncEngine.queueMutation('plan', updated);
       },
 
       applyPresetPlan: (presetId) => {
         const preset = WORKOUT_PRESETS.find(p => p.id === presetId);
         if (!preset) return false;
+        const newSchedule = JSON.parse(JSON.stringify(preset.schedule));
+        const updatedPlan = {
+          ...get().plan,
+          activePresetId: presetId,
+          schedule: newSchedule
+        };
         set(state => ({
           activePresetId: presetId,
-          plan: {
-            ...state.plan,
-            schedule: JSON.parse(JSON.stringify(preset.schedule))
-          }
+          plan: updatedPlan
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('plan', updatedPlan);
         return true;
       },
 
@@ -549,20 +659,32 @@ export const useStore = create(
           name: name.trim(),
           description: description.trim(),
           exercises: exercises || [],
-          createdAt: Date.now()
+          createdAt: Date.now(),
+          updatedAt: Date.now()
         };
         set(state => ({
           customRoutines: [...(state.customRoutines || []), newRoutine]
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('routine', newRoutine);
         return newRoutine;
       },
 
       updateCustomRoutine: (id, updatedData) => {
+        let updatedRoutine = null;
         set(state => ({
-          customRoutines: (state.customRoutines || []).map(r => r.id === id ? { ...r, ...updatedData } : r)
+          customRoutines: (state.customRoutines || []).map(r => {
+            if (r.id === id) {
+              updatedRoutine = { ...r, ...updatedData, updatedAt: Date.now() };
+              return updatedRoutine;
+            }
+            return r;
+          })
         }));
         get().persistCurrentUserData();
+        if (updatedRoutine) {
+          syncEngine.queueMutation('routine', updatedRoutine);
+        }
       },
 
       deleteCustomRoutine: (id) => {
@@ -570,6 +692,7 @@ export const useStore = create(
           customRoutines: (state.customRoutines || []).filter(r => r.id !== id)
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('routine', { id, deleted: true, updatedAt: Date.now() });
       },
 
       saveWorkoutAsRoutine: (name, exercises, description = 'Custom saved routine') => {
@@ -741,21 +864,26 @@ export const useStore = create(
           const duration = Math.max(1, Math.round((endTime - state.activeWorkout.startTime) / 60000)); // in minutes
           const workoutName = state.activeWorkout.name;
 
+          const newSession = {
+            id: crypto.randomUUID(),
+            date: getTodayStr(),
+            name: workoutName,
+            exercises: sessionToSave,
+            totalPlannedSets: Math.max(totalPlannedSets, totalCompletedSets),
+            totalCompletedSets,
+            startTime: state.activeWorkout.startTime,
+            endTime,
+            duration,
+            timestamp: Date.now(),
+            updatedAt: Date.now()
+          };
+
+          syncEngine.queueMutation('workout', newSession);
+
           return {
             workoutLogs: [
               ...state.workoutLogs,
-              {
-                id: crypto.randomUUID(),
-                date: getTodayStr(),
-                name: workoutName,
-                exercises: sessionToSave,
-                totalPlannedSets: Math.max(totalPlannedSets, totalCompletedSets),
-                totalCompletedSets,
-                startTime: state.activeWorkout.startTime,
-                endTime,
-                duration,
-                timestamp: Date.now()
-              }
+              newSession
             ],
             activeWorkout: null,
             lastCompletedRoutineName: workoutName
@@ -765,34 +893,40 @@ export const useStore = create(
       },
       
       addWorkoutSession: (name, exercises) => {
+        const newSession = {
+          id: crypto.randomUUID(),
+          date: getTodayStr(),
+          name,
+          exercises,
+          timestamp: Date.now(),
+          updatedAt: Date.now()
+        };
         set((state) => ({
           workoutLogs: [
             ...state.workoutLogs,
-            {
-              id: crypto.randomUUID(),
-              date: getTodayStr(),
-              name,
-              exercises,
-              timestamp: Date.now()
-            }
+            newSession
           ]
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('workout', newSession);
       },
       
       addFoodLog: (foodData) => {
+        const newFood = {
+          id: crypto.randomUUID(),
+          date: getTodayStr(),
+          ...foodData,
+          timestamp: Date.now(),
+          updatedAt: Date.now()
+        };
         set((state) => ({
           foodLogs: [
             ...state.foodLogs,
-            {
-              id: crypto.randomUUID(),
-              date: getTodayStr(),
-              ...foodData,
-              timestamp: Date.now()
-            }
+            newFood
           ]
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('nutrition', newFood);
       },
       
       addWeightLog: (weight, date = getTodayStr()) => {
@@ -809,6 +943,7 @@ export const useStore = create(
           };
         });
         get().persistCurrentUserData();
+        syncEngine.queueMutation('bodyweight', { date, weight: Number(weight), updatedAt: Date.now() });
       },
       
       deleteFoodLog: (id) => {
@@ -816,6 +951,7 @@ export const useStore = create(
           foodLogs: state.foodLogs.filter(log => log.id !== id)
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('nutrition', { id, deleted: true, updatedAt: Date.now() });
       },
       
       deleteWorkoutLog: (id) => {
@@ -823,6 +959,7 @@ export const useStore = create(
           workoutLogs: state.workoutLogs.filter(log => log.id !== id)
         }));
         get().persistCurrentUserData();
+        syncEngine.queueMutation('workout', { id, deleted: true, updatedAt: Date.now() });
       },
 
       addSleepLog: (hours, date = getTodayStr()) => {
@@ -864,6 +1001,59 @@ export const useStore = create(
             ]
           };
         });
+        get().persistCurrentUserData();
+      },
+
+      addWeightLog: (weight, date = getTodayStr()) => {
+        const state = get();
+        const num = Number(weight);
+        if (!num || isNaN(num)) return;
+        const newLog = {
+          id: `wt_${Date.now()}`,
+          weight: num,
+          date,
+          timestamp: Date.now()
+        };
+        const activeProf = state.getActiveProfile();
+        const updatedProfiles = (state.profiles || []).map(p => 
+          p.id === activeProf?.id ? { ...p, weight: num } : p
+        );
+        set({
+          weightLogs: [...(state.weightLogs || []).filter(w => w.date !== date), newLog],
+          profiles: updatedProfiles
+        });
+        get().persistCurrentUserData();
+      },
+
+      updateWeightGoals: (currentWeight, targetWeight) => {
+        const state = get();
+        const cur = Number(currentWeight);
+        const tgt = Number(targetWeight);
+        const activeProf = state.getActiveProfile();
+        const updatedProfiles = (state.profiles || []).map(p => 
+          p.id === activeProf?.id ? { 
+            ...p, 
+            weight: cur > 0 ? cur : p.weight, 
+            targetWeight: tgt > 0 ? tgt : (p.targetWeight || 65) 
+          } : p
+        );
+        const existingLogs = (state.weightLogs || []).filter(w => w.date !== getTodayStr());
+        const newLogs = cur > 0 ? [...existingLogs, {
+          id: `wt_${Date.now()}`,
+          weight: cur,
+          date: getTodayStr(),
+          timestamp: Date.now()
+        }] : state.weightLogs;
+
+        set({
+          profiles: updatedProfiles,
+          weightLogs: newLogs
+        });
+        get().persistCurrentUserData();
+      },
+
+      setDashboardCardOrder: (newOrder) => {
+        set({ dashboardCardOrder: newOrder });
         get().persistCurrentUserData();
       },
 
@@ -1000,7 +1190,11 @@ export const useStore = create(
               for (const ex of s.exercises) {
                 if (ex.sets) {
                   for (const setItem of ex.sets) {
-                    thisWeekVol += (Number(setItem.weight) || 1) * (Number(setItem.reps) || 1);
+                    if (setItem.completed) {
+                      const w = Number(setItem.weight) || 0;
+                      const r = Number(setItem.reps) || 0;
+                      thisWeekVol += w * r;
+                    }
                   }
                 }
               }
@@ -1019,7 +1213,11 @@ export const useStore = create(
               for (const ex of s.exercises) {
                 if (ex.sets) {
                   for (const setItem of ex.sets) {
-                    priorWeekVol += (Number(setItem.weight) || 1) * (Number(setItem.reps) || 1);
+                    if (setItem.completed) {
+                      const w = Number(setItem.weight) || 0;
+                      const r = Number(setItem.reps) || 0;
+                      priorWeekVol += w * r;
+                    }
                   }
                 }
               }
@@ -1027,16 +1225,22 @@ export const useStore = create(
           }
         }
 
-        if (priorWeekVol === 0) {
-          return thisWeekVol > 0 ? { changePct: 100, isPositive: true, raw: '+100%' } : { changePct: 0, isPositive: true, raw: '0%' };
+        if (thisWeekVol === 0 && priorWeekVol === 0) {
+          return { changePct: 0, isPositive: true, raw: '0%', thisWeekVol: 0 };
         }
 
-        const delta = thisWeekVol - priorWeekVol;
-        const pct = Math.round((delta / priorWeekVol) * 100);
+        if (priorWeekVol === 0) {
+          const displayVol = thisWeekVol >= 1000 ? `${(thisWeekVol / 1000).toFixed(1)}k kg` : `${thisWeekVol} kg`;
+          return { changePct: 0, isPositive: true, raw: displayVol, thisWeekVol };
+        }
+
+        const change = ((thisWeekVol - priorWeekVol) / priorWeekVol) * 100;
+        const rounded = Math.round(change);
         return {
-          changePct: Math.abs(pct),
-          isPositive: pct >= 0,
-          raw: `${pct >= 0 ? '+' : ''}${pct}%`
+          changePct: rounded,
+          isPositive: rounded >= 0,
+          raw: `${rounded >= 0 ? '+' : ''}${rounded}%`,
+          thisWeekVol
         };
       },
 
@@ -1150,3 +1354,8 @@ export const useStore = create(
     }
   )
 );
+
+// Register store callback with SyncEngine so background cloud updates reconcile seamlessly
+syncEngine.registerStoreCallback((delta) => {
+  useStore.getState().applyServerDelta(delta);
+});

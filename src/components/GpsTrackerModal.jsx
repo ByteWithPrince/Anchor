@@ -40,8 +40,6 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     };
   }, [isRecording, isPaused]);
 
-  if (!isOpen || typeof document === 'undefined') return null;
-
   // Clean up GPS on unmount
   useEffect(() => {
     return () => {
@@ -49,7 +47,7 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     };
   }, []);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const handleStart = () => {
     setIsRecording(true);

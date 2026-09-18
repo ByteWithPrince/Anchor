@@ -3,24 +3,25 @@ import { createPortal } from 'react-dom';
 import { X, Plus, Minus, Disc3 } from 'lucide-react';
 import { plateService } from '../services/plateService';
 
-// Standard Olympic plate color accents for creative visualization
+// Standard Olympic metric plate colors & dimensions (IWF standards)
 const PLATE_COLORS = {
-  45: { bg: 'rgba(0, 208, 156, 0.25)', border: '#00D09C', text: '#00D09C', height: 64 },
-  35: { bg: 'rgba(244, 199, 103, 0.25)', border: '#F4C767', text: '#F4C767', height: 56 },
-  25: { bg: 'rgba(255, 114, 67, 0.25)', border: '#FF7243', text: '#FF7243', height: 48 },
-  10: { bg: 'rgba(99, 102, 241, 0.25)', border: '#818cf8', text: '#818cf8', height: 40 },
-  5: { bg: 'rgba(164, 208, 55, 0.25)', border: '#A4D037', text: '#A4D037', height: 32 },
-  2.5: { bg: 'rgba(255, 255, 255, 0.18)', border: '#C0C0C0', text: '#E0E0E0', height: 26 }
+  25: { bg: 'rgba(239, 68, 68, 0.25)', border: '#EF4444', text: '#EF4444', height: 66 },
+  20: { bg: 'rgba(59, 130, 246, 0.25)', border: '#3B82F6', text: '#3B82F6', height: 60 },
+  15: { bg: 'rgba(245, 158, 11, 0.25)', border: '#F59E0B', text: '#F59E0B', height: 54 },
+  10: { bg: 'rgba(16, 185, 129, 0.25)', border: '#10B981', text: '#10B981', height: 46 },
+  5: { bg: 'rgba(255, 255, 255, 0.25)', border: '#FFFFFF', text: '#FFFFFF', height: 38 },
+  2.5: { bg: 'rgba(156, 163, 175, 0.25)', border: '#9CA3AF', text: '#D1D5DB', height: 32 },
+  1.25: { bg: 'rgba(110, 231, 183, 0.25)', border: '#6EE7B7', text: '#6EE7B7', height: 26 }
 };
 
 export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, targetWeight, onApplyWeight, onApply }) {
-  const rawWeight = targetWeight !== undefined ? targetWeight : (initialWeight !== undefined ? initialWeight : 135);
+  const rawWeight = targetWeight !== undefined ? targetWeight : (initialWeight !== undefined ? initialWeight : 60);
   const [adjustedWeight, setAdjustedWeight] = useState(null);
 
   // Sync weight whenever modal opens or target weight updates
   useEffect(() => {
     if (isOpen) {
-      setAdjustedWeight(Number(rawWeight) || 135);
+      setAdjustedWeight(Number(rawWeight) || 60);
     }
   }, [isOpen, rawWeight]);
 
@@ -36,11 +37,11 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
 
   if (!isOpen || typeof document === 'undefined') return null;
 
-  const weight = adjustedWeight !== null ? adjustedWeight : (Number(rawWeight) || 135);
+  const weight = adjustedWeight !== null ? adjustedWeight : (Number(rawWeight) || 60);
   const result = plateService.calculatePlates(weight);
 
   const handleAdjust = (delta) => {
-    const next = Math.max(45, weight + delta);
+    const next = Math.max(20, Math.round((weight + delta) * 10) / 10);
     setAdjustedWeight(next);
   };
 
@@ -111,7 +112,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
                 OLYMPIC BARBELL LOADER
               </span>
               <div style={{ fontSize: '30px', fontWeight: '900', letterSpacing: '-0.5px', color: '#FFFFFF', lineHeight: 1.1 }}>
-                {weight} <span style={{ fontSize: '15px', color: '#00D09C', fontWeight: '800' }}>LBS</span>
+                {weight} <span style={{ fontSize: '15px', color: '#00D09C', fontWeight: '800' }}>KG</span>
               </div>
             </div>
           </div>
@@ -138,7 +139,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
 
         {/* Quick Adjustment Steppers */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px' }}>
-          {[-25, -10, +10, +25].map(delta => (
+          {[-10, -5, +5, +10].map(delta => (
             <button 
               key={delta}
               onClick={() => handleAdjust(delta)} 
@@ -159,7 +160,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
               }}
             >
               {delta > 0 ? <Plus size={13} strokeWidth={3} /> : <Minus size={13} strokeWidth={3} />}
-              <span>{Math.abs(delta)} lb</span>
+              <span>{Math.abs(delta)} kg</span>
             </button>
           ))}
         </div>
@@ -176,10 +177,10 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: '11px', fontWeight: '800', color: '#8E8E93', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
-              LOAD PER SIDE (45 LB BAR)
+              LOAD PER SIDE (20 KG BAR)
             </span>
             <span style={{ fontSize: '13px', fontWeight: '800', color: '#00D09C' }}>
-              {result.weightPerSide} lbs
+              {result.weightPerSide} kg
             </span>
           </div>
 
@@ -273,7 +274,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
                         gap: '6px'
                       }}
                     >
-                      <span>{p.count} × {p.plate} lb</span>
+                      <span>{p.count} × {p.plate} kg</span>
                     </span>
                   );
                 })}
@@ -281,7 +282,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
             </div>
           ) : (
             <div style={{ fontSize: '13px', color: '#8E8E93', textAlign: 'center', padding: '16px 0', fontWeight: '600' }}>
-              {weight === 45 ? 'Empty 45 lb Barbell (No plates needed)' : result.message || 'No plates needed'}
+              {weight === 20 ? 'Empty 20 kg Barbell (No plates needed)' : result.message || 'No plates needed'}
             </div>
           )}
         </div>
@@ -304,7 +305,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
             transition: 'opacity 0.2s ease'
           }}
         >
-          APPLY {weight} LBS
+          APPLY {weight} KG
         </button>
       </div>
     </div>

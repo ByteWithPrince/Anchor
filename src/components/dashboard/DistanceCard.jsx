@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import GpsTrackerModal from '../GpsTrackerModal';
 
-export default function DistanceCard() {
+export default function DistanceCard({ dragHandleProps }) {
   const [gpsModalOpen, setGpsModalOpen] = useState(false);
   const getMonthlyDistance = useStore(state => state.getMonthlyDistance);
   const cardioLogs = useStore(state => state.cardioLogs);
@@ -67,7 +68,6 @@ export default function DistanceCard() {
           strokeWidth="3.5"
           fill="none"
           strokeLinecap="round"
-          filter="drop-shadow(0 0 6px rgba(255, 114, 67, 0.6))"
         />
 
         {/* GPS waypoint circle */}
@@ -84,6 +84,34 @@ export default function DistanceCard() {
 
       {/* Foreground Content */}
       <div style={{ position: 'relative', zIndex: 2 }}>
+        {/* Top Header: Title + Drag Handle */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
+            Distance
+          </h2>
+          <div 
+            {...dragHandleProps}
+            role="button"
+            tabIndex={0}
+            aria-label="Move Card"
+            title="Drag to rearrange dashboard cards"
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#8E8E93',
+              cursor: 'grab',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <GripVertical size={16} />
+          </div>
+        </div>
+
         {/* Large Distance Stat */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
           <span style={{
@@ -127,8 +155,10 @@ export default function DistanceCard() {
             fontSize: '13px',
             padding: '12px 24px',
             borderRadius: '9999px',
-            boxShadow: '0 4px 16px rgba(255, 114, 67, 0.4)',
+            boxShadow: 'none',
+            border: 'none',
             letterSpacing: '0.2px',
+            cursor: 'pointer',
             transition: 'transform 0.15s ease, background-color 0.2s ease'
           }}
         >

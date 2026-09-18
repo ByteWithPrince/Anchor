@@ -25,7 +25,7 @@ export default function WorkoutComplete() {
       saveWorkoutAsRoutine(templateName.trim(), activeWorkout.exercises, `Saved from completed session on ${new Date().toLocaleDateString()}`);
     }
     finishActiveWorkout();
-    navigate('/');
+    navigate('/dashboard');
   };
 
   const completedSets = activeWorkout ? activeWorkout.exercises.reduce((acc, ex) => acc + ex.sets.filter(s => s.completed).length, 0) : 12;
@@ -37,7 +37,7 @@ export default function WorkoutComplete() {
           return sAcc + ((Number(s.weight) || 0) * (Number(s.reps) || 0));
         }, 0);
       }, 0)
-    : 8450;
+    : 3850;
 
   // PR Detection
   const prsAchieved = [];
@@ -141,7 +141,7 @@ export default function WorkoutComplete() {
               <Dumbbell size={14} color="#FF7243" /> VOLUME MOVED
             </div>
             <div style={{ fontSize: '32px', fontWeight: '800', color: '#FF7243', letterSpacing: '-1px', marginTop: '6px' }}>
-              {displayVolume.toLocaleString()} <span style={{ fontSize: '14px', color: '#8E8E93', fontWeight: '500' }}>lbs</span>
+              {displayVolume.toLocaleString()} <span style={{ fontSize: '14px', color: '#8E8E93', fontWeight: '500' }}>kg</span>
             </div>
           </div>
 
@@ -182,7 +182,7 @@ export default function WorkoutComplete() {
             {prsAchieved.map((pr, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', color: '#FFFFFF', marginTop: '4px' }}>
                 <span>{pr.name}</span>
-                <span style={{ color: '#00D09C', fontWeight: '700' }}>{pr.weight} lbs (All-Time High)</span>
+                <span style={{ color: '#00D09C', fontWeight: '700' }}>{pr.weight} kg (All-Time High)</span>
               </div>
             ))}
           </div>

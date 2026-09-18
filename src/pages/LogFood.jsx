@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore, getTodayStr } from '../store/useStore';
-import { ArrowLeft, Sparkles, CheckCircle2, Mic, MicOff, Search } from 'lucide-react';
+import { ArrowLeft, Sparkles, CheckCircle2, Mic, MicOff, Search, Trash2, Utensils } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
 import { aiService } from '../services/aiService';
 import SEOHead from '../components/SEOHead';
@@ -9,10 +9,39 @@ import SEOHead from '../components/SEOHead';
 export default function LogFood() {
   const navigate = useNavigate();
   const addFoodLog = useStore(state => state.addFoodLog);
-  const foodLogs = useStore(state => state.foodLogs);
+  const deleteFoodLog = useStore(state => state.deleteFoodLog);
+  const foodLogs = useStore(state => state.foodLogs) || [];
+  const plan = useStore(state => state.plan);
+  const targetCalories = plan?.macroTargets?.calories || 2500;
+  const targetProtein = plan?.macroTargets?.protein || 160;
+  const targetCarbs = plan?.macroTargets?.carbs || 280;
+  const targetFat = plan?.macroTargets?.fat || 75;
   const getRecentFoods = useStore(state => state.getRecentFoods);
   
   const [recentFoods] = useState(() => getRecentFoods());
+
+  const defaultStaples = [
+    { name: 'Double Scoop Whey Protein', calories: 260, protein: 50, carbs: 6, fat: 3 },
+    { name: 'Chicken Breast & Jasmine Rice (200g)', calories: 480, protein: 54, carbs: 52, fat: 4 },
+    { name: '4 Whole Eggs & Sourdough Toast', calories: 420, protein: 26, carbs: 32, fat: 20 },
+    { name: 'Greek Yogurt (0%) & Wild Berries', calories: 210, protein: 24, carbs: 26, fat: 0 },
+    { name: 'Oatmeal, Peanut Butter & Banana', calories: 510, protein: 18, carbs: 74, fat: 16 },
+    { name: 'Lean Sirloin Steak & Sweet Potato', calories: 560, protein: 58, carbs: 42, fat: 14 },
+    { name: 'Avocado Toast & Boiled Eggs', calories: 380, protein: 18, carbs: 30, fat: 22 },
+    { name: 'Wild Salmon Fillet & Quinoa', calories: 520, protein: 46, carbs: 38, fat: 20 }
+  ];
+
+  // Merge recent foods with athletic staples so there are always rich quick suggestions
+  const displayedStaples = useMemo(() => {
+    const combined = [...recentFoods];
+    for (const staple of defaultStaples) {
+      if (!combined.some(item => item.name?.toLowerCase() === staple.name.toLowerCase())) {
+        combined.push(staple);
+      }
+      if (combined.length >= 8) break;
+    }
+    return combined;
+  }, [recentFoods]);
   
   const [query, setQuery] = useState('');
   const [food, setFood] = useState({ name: '', calories: '', protein: '', carbs: '', fat: '' });
@@ -32,6 +61,23 @@ export default function LogFood() {
   // Yesterday's food logs for 1-tap staple duplication
   const yesterdayStr = getTodayStr(-1);
   const yesterdayFoods = foodLogs.filter(log => log.date === yesterdayStr);
+
+  // Today's food logs and totals
+  const todayStr = getTodayStr();
+  const todayFoods = useMemo(() => {
+    return (foodLogs || []).filter(log => log.date === todayStr);
+  }, [foodLogs, todayStr]);
+
+  const todayTotals = useMemo(() => {
+    return todayFoods.reduce((acc, item) => {
+      return {
+        calories: acc.calories + (Number(item.calories) || 0),
+        protein: acc.protein + (Number(item.protein) || 0),
+        carbs: acc.carbs + (Number(item.carbs) || 0),
+        fat: acc.fat + (Number(item.fat) || 0)
+      };
+    }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  }, [todayFoods]);
 
   const analyzeFood = async (customQuery) => {
     const textToSearch = (customQuery !== undefined ? customQuery : query) || '';
@@ -159,8 +205,8 @@ export default function LogFood() {
     setSuccessData({ name: `${yesterdayFoods.length} Staple Foods Cloned`, calories: yesterdayFoods.reduce((a, b) => a + (Number(b.calories) || 0), 0) });
     setShowSuccess(true);
     setTimeout(() => {
-      navigate('/');
-    }, 1500);
+      setShowSuccess(false);
+    }, 3500);
   };
 
   const handleSave = () => {
@@ -175,9 +221,13 @@ export default function LogFood() {
     });
     setSuccessData({ ...food });
     setShowSuccess(true);
+    setShowForm(false);
+    setQuery('');
+    setSearchResults([]);
+    setFood({ name: '', calories: '', protein: '', carbs: '', fat: '' });
     setTimeout(() => {
-      navigate('/');
-    }, 1200);
+      setShowSuccess(false);
+    }, 3500);
   };
 
   return (
@@ -224,7 +274,13 @@ export default function LogFood() {
           </div>
 
           <button 
-            onClick={() => navigate('/')} 
+            onClick={() => {
+              if (showForm) {
+                setShowForm(false);
+              } else {
+                navigate('/dashboard');
+              }
+            }} 
             style={{ 
               width: '38px', 
               height: '38px', 
@@ -381,6 +437,193 @@ export default function LogFood() {
                   ))}
                 </div>
               )}
+
+              {/* Today's Logged Foods Section */}
+              <div
+                className="glass-card"
+                style={{
+                  background: 'var(--glass-bg)',
+                  backdropFilter: 'var(--glass-backdrop)',
+                  WebkitBackdropFilter: 'var(--glass-backdrop)',
+                  borderRadius: '24px',
+                  padding: '24px',
+                  border: 'var(--glass-border)',
+                  boxShadow: 'var(--glass-shadow)',
+                  marginBottom: '24px'
+                }}
+              >
+                {/* Header with Totals */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Utensils size={16} color="#00D09C" />
+                      <h2 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0, letterSpacing: '-0.2px' }}>
+                        Today's Fuel Log
+                      </h2>
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '3px' }}>
+                      {todayFoods.length} {todayFoods.length === 1 ? 'entry' : 'entries'} logged today
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#00D09C' }}>
+                      {todayTotals.calories} <span style={{ fontSize: '12px', color: '#8E8E93', fontWeight: '500' }}>/ {targetCalories} kcal</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{
+                  width: '100%',
+                  height: '6px',
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  borderRadius: '9999px',
+                  overflow: 'hidden',
+                  marginBottom: '16px'
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.round((todayTotals.calories / (targetCalories || 2500)) * 100))}%`,
+                    height: '100%',
+                    backgroundColor: '#00D09C',
+                    borderRadius: '9999px',
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+
+                {/* Macro breakdown pills */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: '8px',
+                  marginBottom: '18px'
+                }}>
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '12px',
+                    padding: '8px 10px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '10px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Protein</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#FFFFFF', marginTop: '2px' }}>
+                      {todayTotals.protein}g <span style={{ fontSize: '10px', color: '#8E8E93', fontWeight: '500' }}>/ {targetProtein}g</span>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '12px',
+                    padding: '8px 10px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '10px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Carbs</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#FFFFFF', marginTop: '2px' }}>
+                      {todayTotals.carbs}g <span style={{ fontSize: '10px', color: '#8E8E93', fontWeight: '500' }}>/ {targetCarbs}g</span>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: '12px',
+                    padding: '8px 10px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '10px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Fat</div>
+                    <div style={{ fontSize: '14px', fontWeight: '800', color: '#FFFFFF', marginTop: '2px' }}>
+                      {todayTotals.fat}g <span style={{ fontSize: '10px', color: '#8E8E93', fontWeight: '500' }}>/ {targetFat}g</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* List of Today's Foods */}
+                {todayFoods.length === 0 ? (
+                  <div style={{
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    borderRadius: '16px',
+                    border: '1px dashed rgba(255, 255, 255, 0.08)'
+                  }}>
+                    <div style={{ fontSize: '13px', color: '#8E8E93', fontWeight: '500' }}>
+                      No meals logged yet today.
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#666666', marginTop: '4px' }}>
+                      Use the search bar above, speak into mic, or tap a quick staple to log instantly.
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '420px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {todayFoods.map((log) => (
+                      <div
+                        key={log.id}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.03)',
+                          border: '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: '14px',
+                          padding: '12px 14px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          transition: 'background 0.15s ease'
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {log.name}
+                            </span>
+                            {log.source && (
+                              <span style={{
+                                fontSize: '9px',
+                                fontWeight: '700',
+                                textTransform: 'uppercase',
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                background: log.source === 'ai' ? 'rgba(0, 208, 156, 0.12)' : 'rgba(255, 255, 255, 0.06)',
+                                color: log.source === 'ai' ? '#00D09C' : '#8E8E93'
+                              }}>
+                                {log.source}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '2px' }}>
+                            {log.protein || 0}g P · {log.carbs || 0}g C · {log.fat || 0}g F
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '15px', fontWeight: '800', color: '#00D09C', whiteSpace: 'nowrap' }}>
+                            +{log.calories} kcal
+                          </span>
+                          <button
+                            onClick={() => deleteFoodLog(log.id)}
+                            title="Delete meal entry"
+                            aria-label={`Delete ${log.name}`}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#666666',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'color 0.15s ease'
+                            }}
+                            onMouseEnter={e => e.currentTarget.style.color = '#FF7243'}
+                            onMouseLeave={e => e.currentTarget.style.color = '#666666'}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div>
@@ -445,20 +688,13 @@ export default function LogFood() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                   <span style={{ fontSize: '12px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    {recentFoods.length > 0 ? 'Recent Meals & Staples' : 'Athletic Fuel Presets (1-Tap)'}
+                    Quick Meals & Athletic Staples
                   </span>
                   <span style={{ fontSize: '11px', color: '#00D09C', fontWeight: '600' }}>Instant Fill</span>
                 </div>
                 
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                  {(recentFoods.length > 0 ? recentFoods : [
-                    { name: 'Double Scoop Whey Protein', calories: 260, protein: 50, carbs: 6, fat: 3 },
-                    { name: 'Chicken Breast & Jasmine Rice (200g)', calories: 480, protein: 54, carbs: 52, fat: 4 },
-                    { name: '4 Whole Eggs & Sourdough Toast', calories: 420, protein: 26, carbs: 32, fat: 20 },
-                    { name: 'Greek Yogurt (0%) & Wild Berries', calories: 210, protein: 24, carbs: 26, fat: 0 },
-                    { name: 'Oatmeal, Peanut Butter & Banana', calories: 510, protein: 18, carbs: 74, fat: 16 },
-                    { name: 'Lean Sirloin Steak & Sweet Potato', calories: 560, protein: 58, carbs: 42, fat: 14 }
-                  ]).map((f, i) => (
+                  {displayedStaples.map((f, i) => (
                     <button
                       key={i}
                       onClick={() => handleQuickAdd(f)}

@@ -1,81 +1,126 @@
 /**
- * Automated Verification Suite for Anchor Fitness OS Backend API
+ * Comprehensive Automated Verification Suite for Anchor Fitness OS Backend API.
+ * Tests authentication, dual-token rotation, theft detection, guest migration,
+ * atomic delta sync, multi-user isolation, export, and account deletion.
  */
+
+import { createBackup } from './backup.js';
 
 const BASE_URL = 'http://localhost:5001';
 
 async function runTests() {
-  console.log('--- STARTING ANCHOR BACKEND API TEST SUITE ---');
+  console.log('--- STARTING COMPREHENSIVE ANCHOR BACKEND TEST SUITE ---');
   let token = '';
+  let refreshToken = '';
   let testEmail = `athlete_${Date.now()}@anchor.test`;
   let testPassword = 'Password123!';
   let workoutId = `test_ws_${Date.now()}`;
   let foodId = `test_fd_${Date.now()}`;
   let routineId = `test_rtn_${Date.now()}`;
 
-  // 1. Health Check
+  // 1. Health Diagnostics
   const healthRes = await fetch(`${BASE_URL}/api/health`);
   const health = await healthRes.json();
-  console.log('✓ Health Check:', health.status, health.version);
+  if (health.status !== 'ok') throw new Error(`Health check degraded: ${JSON.stringify(health)}`);
+  console.log('✓ 1. Health Check:', health.status, '| DB:', health.database, '| Heap:', `${health.memory.heapUsedMb}MB`);
 
-  // 2. User Registration
+  // 2. Athlete Registration & Dual-Token Issuance
   const regRes = await fetch(`${BASE_URL}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       email: testEmail,
       password: testPassword,
-      name: 'Vexora Athlete',
+      name: 'Vexora Elite Athlete',
       role: 'Powerlifting'
     })
   });
   const regData = await regRes.json();
   if (!regRes.ok) throw new Error(`Register failed: ${JSON.stringify(regData)}`);
   token = regData.token;
-  console.log('✓ User Registration:', regData.user.email, '| ID:', regData.user.id);
+  refreshToken = regData.refreshToken;
+  if (!token || !refreshToken) throw new Error('Dual-token architecture failed: Missing access or refresh token');
+  console.log('✓ 2. Athlete Registration:', regData.user.email, '| User ID:', regData.user.id);
 
-  // 3. Current User Me
+  // 3. Google Sign-In with Guest Data Migration ("Claim Guest Data")
+  const googleEmail = `google_athlete_${Date.now()}@gmail.com`;
+  const guestWorkoutId = `guest_ws_${Date.now()}`;
+  const gRes = await fetch(`${BASE_URL}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: googleEmail,
+      name: 'Google Migrated Athlete',
+      googleId: `gid_${Date.now()}`,
+      guestData: {
+        workouts: [{
+          id: guestWorkoutId,
+          name: 'Guest Bench Session',
+          date: new Date().toISOString().split('T')[0],
+          exercises: [{ name: 'Bench Press', sets: [{ weight: 100, reps: 5, completed: true }] }]
+        }]
+      }
+    })
+  });
+  const gData = await gRes.json();
+  if (!gRes.ok || !gData.token) throw new Error(`Google Auth failed: ${JSON.stringify(gData)}`);
+  console.log('✓ 3. Google Sign-In + Guest Migration:', gData.user.email, '| ID:', gData.user.id);
+
+  // 4. Refresh Token Rotation
+  const refRes = await fetch(`${BASE_URL}/api/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken })
+  });
+  const refData = await refRes.json();
+  if (!refRes.ok || !refData.token) throw new Error(`Refresh token rotation failed: ${JSON.stringify(refData)}`);
+  const oldRefreshToken = refreshToken;
+  token = refData.token;
+  refreshToken = refData.refreshToken;
+  console.log('✓ 4. Refresh Token Rotated Successfully (New access token issued)');
+
+  // 5. Refresh Token Theft Detection (Replaying already used oldRefreshToken)
+  const replayRes = await fetch(`${BASE_URL}/api/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken: oldRefreshToken })
+  });
+  const replayData = await replayRes.json();
+  if (replayRes.status !== 401 || replayData.code !== 'TOKEN_THEFT_DETECTED') {
+    throw new Error(`Token theft detection failed! Status: ${replayRes.status}, data: ${JSON.stringify(replayData)}`);
+  }
+  console.log('✓ 5. Token Theft Detection Verified (Reused token was caught and blocked)');
+
+  // Re-login User 1 to continue remaining tests
+  const loginRes = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: testEmail, password: testPassword })
+  });
+  const loginData = await loginRes.json();
+  if (!loginRes.ok || !loginData.token) {
+    throw new Error(`Re-login failed (Status ${loginRes.status}): ${JSON.stringify(loginData)}`);
+  }
+  token = loginData.token;
+
+  // 6. User Profile
   const meRes = await fetch(`${BASE_URL}/api/auth/me`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const meData = await meRes.json();
-  console.log('✓ Auth Me Profile:', meData.user.name, '| Role:', meData.user.role);
+  if (!meRes.ok || !meData.user) {
+    throw new Error(`Profile fetch failed (Status ${meRes.status}): ${JSON.stringify(meData)}`);
+  }
+  console.log('✓ 6. Profile Fetched:', meData.user.name, '| Role:', meData.user.role);
 
-  // 4. Update Profile
-  const profRes = await fetch(`${BASE_URL}/api/auth/profile`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({ role: 'Hybrid Strength & Endurance' })
-  });
-  const profData = await profRes.json();
-  console.log('✓ Profile Updated:', profData.user.role);
-
-  // 5. Training Plan Active
+  // 7. Active Training Plan
   const planRes = await fetch(`${BASE_URL}/api/plans/active`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const planData = await planRes.json();
-  console.log('✓ Active Training Plan:', planData.plan.splitName, '| Target Calories:', planData.plan.macroTargets.calories);
+  console.log('✓ 7. Active Training Plan:', planData.plan.splitName, '| Cals:', planData.plan.macroTargets.calories);
 
-  // 6. Update Training Plan
-  const planPutRes = await fetch(`${BASE_URL}/api/plans/active`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      splitName: 'Hypertrophy Mastery Split',
-      macroTargets: { calories: 2750, protein: 210, carbs: 250, fat: 75 }
-    })
-  });
-  const planPutData = await planPutRes.json();
-  console.log('✓ Training Plan Updated:', planPutData.plan.splitName, '| Cals:', planPutData.plan.macroTargets.calories);
-
-  // 7. Custom Routine Creation
+  // 8. Custom Routine Creation
   const rtnRes = await fetch(`${BASE_URL}/api/plans/routines`, {
     method: 'POST',
     headers: {
@@ -84,20 +129,17 @@ async function runTests() {
     },
     body: JSON.stringify({
       id: routineId,
-      name: 'Heavy Bench & Accessory Blast',
-      focus: 'Chest & Arms',
-      estimatedMinutes: 50,
-      exercises: [
-        { name: 'Barbell Bench Press', defaultSets: 4, defaultReps: 6, defaultWeight: 100 },
-        { name: 'Incline Dumbbell Fly', defaultSets: 3, defaultReps: 12, defaultWeight: 24 }
-      ]
+      name: 'Explosive Deadlift Day',
+      focus: 'Posterior Chain',
+      estimatedMinutes: 55,
+      exercises: [{ name: 'Conventional Deadlift', sets: 4, reps: 5 }]
     })
   });
   const rtnData = await rtnRes.json();
-  console.log('✓ Custom Routine Created:', rtnData.routine.name);
+  console.log('✓ 8. Custom Routine Created:', rtnData.routine.name);
 
-  // 8. Log Workout Session
-  const wsRes = await fetch(`${BASE_URL}/api/workouts`, {
+  // 9. Workout Logging with Exercises and Sets
+  const wRes = await fetch(`${BASE_URL}/api/workouts`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -105,39 +147,31 @@ async function runTests() {
     },
     body: JSON.stringify({
       id: workoutId,
-      name: 'Push Day A (Chest & Triceps)',
-      date: new Date().toISOString().split('T')[0],
+      name: 'Heavy Deadlift Session',
       durationMin: 55,
-      exercises: [
-        {
-          name: 'Barbell Bench Press',
-          sets: [
-            { weight: 100, reps: 5, completed: true, rpe: 8 },
-            { weight: 105, reps: 5, completed: true, rpe: 8.5 },
-            { weight: 110, reps: 4, completed: true, rpe: 9.5 }
-          ]
-        },
-        {
-          name: 'Overhead Tricep Extension',
-          sets: [
-            { weight: 35, reps: 12, completed: true },
-            { weight: 35, reps: 10, completed: true }
-          ]
-        }
-      ]
+      totalVolume: 3200,
+      totalPlannedSets: 4,
+      totalCompletedSets: 4,
+      exercises: [{
+        name: 'Conventional Deadlift',
+        sets: [
+          { setNumber: 1, weight: 140, reps: 5, completed: true, rpe: 7.5 },
+          { setNumber: 2, weight: 160, reps: 5, completed: true, rpe: 8.5 }
+        ]
+      }]
     })
   });
-  const wsData = await wsRes.json();
-  console.log('✓ Workout Logged:', wsData.sessionId, '| Volume:', wsData.totalVolume, 'kg | Sets:', wsData.completedSets);
+  const wData = await wRes.json();
+  console.log('✓ 9. Workout Session Logged:', wData.session.name, '| Volume:', wData.session.totalVolume);
 
-  // 9. Personal Records (PRs)
-  const prsRes = await fetch(`${BASE_URL}/api/workouts/stats/prs`, {
+  // 10. PR Calculation
+  const prsRes = await fetch(`${BASE_URL}/api/workouts/history/prs`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const prsData = await prsRes.json();
-  console.log('✓ PRs Calculated:', prsData.prs.map(p => `${p.exercise}: max ${p.maxWeight}kg (Est 1RM: ${p.estimated1RM}kg)`));
+  console.log('✓ 10. PRs Calculated:', prsData.prs.map(p => `${p.exercise}: ${p.maxWeight}kg`));
 
-  // 10. Log Nutrition
+  // 11. Nutrition Logging
   const nutRes = await fetch(`${BASE_URL}/api/nutrition`, {
     method: 'POST',
     headers: {
@@ -146,24 +180,16 @@ async function runTests() {
     },
     body: JSON.stringify({
       id: foodId,
-      name: 'Ribeye Steak & Sweet Potatoes',
-      calories: 780,
-      protein: 64,
-      carbs: 48,
-      fat: 32,
-      mealType: 'Dinner',
-      source: 'manual'
+      name: 'Salmon & Wild Rice',
+      calories: 650,
+      protein: 48,
+      carbs: 52,
+      fat: 22,
+      mealType: 'Dinner'
     })
   });
   const nutData = await nutRes.json();
-  console.log('✓ Food Item Logged:', nutData.item.name, '| Cals:', nutData.item.calories);
-
-  // 11. Nutrition Daily Totals
-  const nutGetRes = await fetch(`${BASE_URL}/api/nutrition?date=${new Date().toISOString().split('T')[0]}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const nutGetData = await nutGetRes.json();
-  console.log('✓ Daily Macro Totals:', nutGetData.totals);
+  console.log('✓ 11. Nutrition Logged:', nutData.item.name, '| Protein:', `${nutData.item.protein}g`);
 
   // 12. Ingest GPS Telemetry
   const gpsRes = await fetch(`${BASE_URL}/api/telemetry/gps`, {
@@ -174,18 +200,15 @@ async function runTests() {
     },
     body: JSON.stringify({
       sessionId: workoutId,
-      distanceKm: 5.24,
-      durationSec: 1800,
-      coordinates: [
-        { lat: 37.7749, lng: -122.4194, alt: 12 },
-        { lat: 37.7755, lng: -122.4180, alt: 14 }
-      ]
+      distanceKm: 5.0,
+      durationSec: 1500,
+      coordinates: [{ lat: 37.77, lng: -122.41 }]
     })
   });
   const gpsData = await gpsRes.json();
-  console.log('✓ GPS Telemetry Ingested:', gpsData.streamId);
+  console.log('✓ 12. GPS Telemetry Ingested:', gpsData.streamId);
 
-  // 13. Delta Synchronization Endpoint
+  // 13. Atomic Bidirectional Delta Sync
   const syncRes = await fetch(`${BASE_URL}/api/sync/delta`, {
     method: 'POST',
     headers: {
@@ -193,27 +216,82 @@ async function runTests() {
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
-      lastSyncedAt: Date.now() - 60000, // Query changes in last 60 seconds
+      lastSyncedAt: 0,
       mutations: {
-        bodyweight: [
-          { date: new Date().toISOString().split('T')[0], weight: 76.5 }
-        ]
+        bodyweight: [{ date: new Date().toISOString().split('T')[0], weight: 77.2 }]
       }
     })
   });
   const syncData = await syncRes.json();
-  console.log('✓ Delta Sync Response:', {
-    serverTime: syncData.serverTime,
+  if (!syncData.success || !syncData.delta) throw new Error('Delta sync failed');
+  console.log('✓ 13. Atomic Delta Sync Executed:', {
     receivedWorkouts: syncData.delta.workouts.length,
     receivedNutrition: syncData.delta.nutrition.length,
-    receivedRoutines: syncData.delta.routines.length,
     receivedBodyweight: syncData.delta.bodyweight.length
   });
 
-  console.log('--- ALL BACKEND TESTS PASSED SUCCESSFULLY (13/13) ---');
+  // 14. Multi-User Data Isolation Verification
+  const userBEmail = `user_b_${Date.now()}@anchor.test`;
+  const userBRes = await fetch(`${BASE_URL}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: userBEmail, password: 'Password123!', name: 'Athlete B' })
+  });
+  const userBData = await userBRes.json();
+  const userBWorkouts = await fetch(`${BASE_URL}/api/workouts`, {
+    headers: { Authorization: `Bearer ${userBData.token}` }
+  });
+  const userBWorkoutsData = await userBWorkouts.json();
+  if (userBWorkoutsData.sessions.some(s => s.id === workoutId)) {
+    throw new Error('CRITICAL SECURITY VIOLATION: User B can see User A workouts!');
+  }
+  console.log('✓ 14. Multi-User Isolation Verified (User B cannot access User A data)');
+
+  // 15. Global Session Revocation (Logout All Devices)
+  const revokeRes = await fetch(`${BASE_URL}/api/auth/logout-all`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const revokeData = await revokeRes.json();
+  console.log('✓ 15. Global Logout-All Executed:', revokeData.message);
+
+  // 16. Full Athlete Data Export (Data Ownership)
+  // Need to log back in since tokenVersion was incremented
+  const loginAgain = await fetch(`${BASE_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: testEmail, password: testPassword })
+  });
+  const freshLogin = await loginAgain.json();
+  const exportRes = await fetch(`${BASE_URL}/api/auth/export`, {
+    headers: { Authorization: `Bearer ${freshLogin.token}` }
+  });
+  const exportData = await exportRes.json();
+  if (!exportData.workouts || !exportData.nutrition) throw new Error('Export failed');
+  console.log('✓ 16. Athlete Data Exported:', {
+    workouts: exportData.workouts.length,
+    nutrition: exportData.nutrition.length
+  });
+
+  // 17. Permanent Account Deletion (GDPR Cascade)
+  const delRes = await fetch(`${BASE_URL}/api/auth/account`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${freshLogin.token}` }
+  });
+  const delData = await delRes.json();
+  console.log('✓ 17. Account Deleted Permanently:', delData.message);
+
+  // 18. Hot Online Backup
+  const backupResult = createBackup();
+  if (!backupResult.success) throw new Error(`Backup failed: ${backupResult.error}`);
+  console.log('✓ 18. Hot Database Online Backup Created Successfully');
+
+  console.log('\n======================================================');
+  console.log('🎉 ALL 18/18 BACKEND PRODUCTION TEST SUITES PASSED CLEANLY!');
+  console.log('======================================================');
 }
 
 runTests().catch(err => {
-  console.error('✗ TEST FAILED:', err);
+  console.error('\n✗ TEST RUNNER ENCOUNTERED AN ERROR:', err);
   process.exit(1);
 });

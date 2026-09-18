@@ -267,7 +267,14 @@ router.post('/', authenticateToken, (req, res) => {
       success: true,
       sessionId,
       totalVolume: finalVolume,
-      completedSets: finalCompletedSets
+      completedSets: finalCompletedSets,
+      session: {
+        id: sessionId,
+        name: name.trim(),
+        date: sessionDate,
+        totalVolume: finalVolume,
+        completedSets: finalCompletedSets
+      }
     });
   } catch (err) {
     console.error('[Workouts POST Error]:', err);
@@ -300,7 +307,7 @@ router.delete('/:id', authenticateToken, (req, res) => {
 });
 
 // 5. Personal Records (PRs) per Exercise
-router.get('/stats/prs', authenticateToken, (req, res) => {
+router.get(['/stats/prs', '/history/prs'], authenticateToken, (req, res) => {
   try {
     const userId = req.user.userId;
 

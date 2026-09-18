@@ -191,7 +191,7 @@ export default function Progress() {
         <div className="glass-card" style={{ background: 'var(--glass-bg)', backdropFilter: 'var(--glass-backdrop)', WebkitBackdropFilter: 'var(--glass-backdrop)', borderRadius: '20px', padding: '24px', border: 'var(--glass-border)', boxShadow: 'var(--glass-shadow)' }}>
           <div style={{ fontSize: '12px', fontWeight: '600', color: '#8E8E93', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Lifetime Volume Moved</div>
           <div style={{ fontSize: '36px', fontWeight: '800', color: '#FF7243', letterSpacing: '-1px', marginTop: '6px' }}>
-            {totalLifetimeVolume.toLocaleString()} <span style={{ fontSize: '16px', color: '#8E8E93', fontWeight: '500' }}>lbs</span>
+            {totalLifetimeVolume.toLocaleString()} <span style={{ fontSize: '16px', color: '#8E8E93', fontWeight: '500' }}>kg</span>
           </div>
           <div style={{ fontSize: '12px', color: '#8E8E93', fontWeight: '500', marginTop: '4px' }}>
             Progressive Overload
@@ -254,7 +254,7 @@ export default function Progress() {
               data={volumeData} 
               labels={volumeTrend.map(v => formatDate(v.date))} 
               height={85} 
-              unit="lbs" 
+              unit="kg" 
             />
           </div>
         )}
@@ -330,13 +330,13 @@ export default function Progress() {
                 <div>
                   <div style={{ fontWeight: '700', fontSize: '15px', color: '#FFFFFF' }}>{ex.name}</div>
                   <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '2px' }}>
-                    Top: {ex.currentWeight} lbs {ex.diff > 0 && <span style={{ color: '#00D09C' }}> (+{ex.diff} lbs)</span>}
+                    Top: {ex.currentWeight} kg {ex.diff > 0 && <span style={{ color: '#00D09C' }}> (+{ex.diff} kg)</span>}
                   </div>
                 </div>
 
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '20px', fontWeight: '800', color: '#FF7243' }}>
-                    {ex.est1RM} <span style={{ fontSize: '12px', fontWeight: '500', color: '#8E8E93' }}>lbs</span>
+                    {ex.est1RM} <span style={{ fontSize: '12px', fontWeight: '500', color: '#8E8E93' }}>kg</span>
                   </div>
                   <div style={{ fontSize: '10px', fontWeight: '700', color: '#8E8E93' }}>1RM EST</div>
                 </div>
@@ -401,7 +401,7 @@ export default function Progress() {
                       </span>
                     </div>
                     <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '4px' }}>
-                      {log.exercises.length} Exercises · {totalSets} Sets · {volume.toLocaleString()} lbs volume
+                      {log.exercises.length} Exercises · {totalSets} Sets · {volume.toLocaleString()} kg volume
                     </div>
                   </div>
 
@@ -438,7 +438,7 @@ export default function Progress() {
                                 fontSize: '11px',
                                 color: s.completed !== false ? '#00D09C' : '#8E8E93'
                               }}>
-                                Set {sIdx + 1}: {s.weight || 0} lbs × {s.reps || 0}
+                                Set {sIdx + 1}: {s.weight || 0} kg × {s.reps || 0}
                               </span>
                             ))}
                           </div>

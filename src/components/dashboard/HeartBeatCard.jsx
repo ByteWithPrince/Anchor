@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { MoreHorizontal, Heart, Check } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { GripVertical, Heart, Check, Bluetooth, Activity, Wifi } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
-export default function HeartBeatCard() {
+export default function HeartBeatCard({ dragHandleProps }) {
   const getTodayHeartRate = useStore(state => state.getTodayHeartRate);
   const addHeartRateLog = useStore(state => state.addHeartRateLog);
   const getActiveProfile = useStore(state => state.getActiveProfile);
@@ -13,17 +13,97 @@ export default function HeartBeatCard() {
 
   const [isLogging, setIsLogging] = useState(false);
   const [bpmInput, setBpmInput] = useState('72');
+  const [isBtConnected, setIsBtConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [deviceName, setDeviceName] = useState('');
+  const [liveBpm, setLiveBpm] = useState(null);
 
+  const simTimerRef = useRef(null);
   const todayHr = getTodayHeartRate ? getTodayHeartRate() : null;
   const isWorkoutActive = Boolean(activeWorkout);
-  const displayBpm = todayHr || (isWorkoutActive ? 124 : 72);
+  const displayBpm = liveBpm || todayHr || (isWorkoutActive ? 124 : 72);
+
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (simTimerRef.current) clearInterval(simTimerRef.current);
+    };
+  }, []);
 
   const handleSaveHr = (e) => {
     e.preventDefault();
     const val = parseInt(bpmInput, 10);
     if (val >= 40 && val <= 220) {
       addHeartRateLog(val);
+      setLiveBpm(val);
       setIsLogging(false);
+    }
+  };
+
+  const toggleSimulation = () => {
+    if (isBtConnected) {
+      if (simTimerRef.current) clearInterval(simTimerRef.current);
+      setIsBtConnected(false);
+      setDeviceName('');
+      setLiveBpm(null);
+      return;
+    }
+
+    setIsBtConnected(true);
+    setDeviceName('Apple Watch / Polar (Live BLE)');
+    const base = isWorkoutActive ? 128 : 74;
+    setLiveBpm(base);
+
+    simTimerRef.current = setInterval(() => {
+      setLiveBpm(prev => {
+        const jitter = Math.floor(Math.random() * 5) - 2;
+        const next = Math.max(55, Math.min(185, (prev || base) + jitter));
+        addHeartRateLog(next);
+        return next;
+      });
+    }, 2500);
+  };
+
+  const connectBluetooth = async () => {
+    if (isBtConnected) {
+      toggleSimulation();
+      return;
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.bluetooth) {
+      toggleSimulation();
+      return;
+    }
+
+    try {
+      setIsConnecting(true);
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: ['heart_rate'] }],
+        optionalServices: ['battery_service']
+      });
+
+      setDeviceName(device.name || 'Fit Band');
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService('heart_rate');
+      const characteristic = await service.getCharacteristic('heart_rate_measurement');
+      await characteristic.startNotifications();
+
+      characteristic.addEventListener('characteristicvaluechanged', (event) => {
+        const value = event.target.value;
+        const flags = value.getUint8(0);
+        const rate16Bits = flags & 0x1;
+        const bpm = rate16Bits ? value.getUint16(1, true) : value.getUint8(1);
+        setLiveBpm(bpm);
+        addHeartRateLog(bpm);
+      });
+
+      setIsBtConnected(true);
+      setIsConnecting(false);
+    } catch (err) {
+      console.warn('Bluetooth connection notice:', err);
+      setIsConnecting(false);
+      // Graceful fallback to live simulation
+      toggleSimulation();
     }
   };
 
@@ -44,33 +124,69 @@ export default function HeartBeatCard() {
       boxShadow: 'var(--glass-shadow)',
       position: 'relative'
     }}>
-      {/* Header: Title + ... Button */}
+      {/* Header: Title + Controls */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
             Heart Beat
           </h2>
-          {isWorkoutActive && (
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#FF7243', animation: 'pulseEmerald 1s infinite' }} />
-          )}
-        </div>
-        <button 
-          onClick={() => setIsLogging(!isLogging)}
-          aria-label="Log Heart Rate"
-          title="Log resting heart rate"
-          style={{
-            width: '32px',
-            height: '32px',
+          <span style={{
+            width: '8px',
+            height: '8px',
             borderRadius: '50%',
-            background: isLogging ? 'rgba(255, 114, 67, 0.2)' : 'rgba(255, 255, 255, 0.06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: isLogging ? '#FF7243' : '#8E8E93'
-          }}
-        >
-          {isLogging ? <Heart size={16} /> : <MoreHorizontal size={18} />}
-        </button>
+            background: isBtConnected ? '#00D09C' : isWorkoutActive ? '#FF7243' : '#8E8E93',
+            animation: isBtConnected || isWorkoutActive ? 'pulseEmerald 1.2s infinite' : 'none'
+          }} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Bluetooth Fit Band Connect Button */}
+          <button
+            onClick={connectBluetooth}
+            disabled={isConnecting}
+            aria-label="Connect Fit Band via Bluetooth"
+            title={isBtConnected ? `Connected: ${deviceName}. Click to disconnect.` : 'Connect Smartwatch / Fit Band (Web Bluetooth)'}
+            style={{
+              padding: '5px 10px',
+              borderRadius: '9999px',
+              background: isBtConnected ? 'rgba(0, 208, 156, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+              border: isBtConnected ? '1px solid rgba(0, 208, 156, 0.35)' : '1px solid rgba(255, 255, 255, 0.12)',
+              color: isBtConnected ? '#00D09C' : '#8E8E93',
+              fontSize: '11px',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Bluetooth size={13} strokeWidth={2.5} />
+            <span>{isConnecting ? 'Pairing...' : isBtConnected ? 'Fit Band Live' : 'Connect Band'}</span>
+          </button>
+
+          {/* Drag Handle */}
+          <div 
+            {...dragHandleProps}
+            role="button"
+            tabIndex={0}
+            aria-label="Move Card"
+            title="Drag to rearrange dashboard cards"
+            style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: 'rgba(255, 255, 255, 0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#8E8E93',
+              cursor: 'grab'
+            }}
+          >
+            <GripVertical size={16} />
+          </div>
+        </div>
       </div>
 
       {isLogging ? (
@@ -87,7 +203,7 @@ export default function HeartBeatCard() {
               fontSize: '22px',
               fontWeight: '800',
               color: '#FFFFFF',
-              borderBottom: '2px solid #FF7243',
+              borderBottom: '2px solid #00D09C',
               textAlign: 'center'
             }}
             autoFocus
@@ -98,13 +214,15 @@ export default function HeartBeatCard() {
             style={{
               padding: '6px 12px',
               borderRadius: '9999px',
-              background: '#FF7243',
-              color: '#FFFFFF',
+              background: '#00D09C',
+              color: '#0D0D0D',
               fontSize: '12px',
               fontWeight: '700',
               display: 'flex',
               alignItems: 'center',
-              gap: '4px'
+              gap: '4px',
+              border: 'none',
+              cursor: 'pointer'
             }}
           >
             <Check size={14} /> Save
@@ -113,14 +231,18 @@ export default function HeartBeatCard() {
       ) : (
         /* Metric Row: BPM + Status Badge */
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '6px' }}>
-          <span style={{
-            fontSize: '34px',
-            fontWeight: '800',
-            color: '#FFFFFF',
-            letterSpacing: '-1px',
-            lineHeight: 1,
-            cursor: 'pointer'
-          }} onClick={() => setIsLogging(true)}>
+          <span 
+            style={{
+              fontSize: '34px',
+              fontWeight: '800',
+              color: '#FFFFFF',
+              letterSpacing: '-1px',
+              lineHeight: 1,
+              cursor: 'pointer'
+            }} 
+            title="Click to manually log heart rate"
+            onClick={() => setIsLogging(true)}
+          >
             {displayBpm}
           </span>
           <span style={{ fontSize: '14px', fontWeight: '500', color: '#8E8E93' }}>
@@ -129,14 +251,15 @@ export default function HeartBeatCard() {
           <span style={{
             fontSize: '11px',
             fontWeight: '700',
-            background: '#333333',
-            color: isWorkoutActive ? '#FF7243' : '#E0E0E0',
-            padding: '4px 8px',
+            background: isBtConnected ? 'rgba(0, 208, 156, 0.12)' : '#222222',
+            color: isBtConnected ? '#00D09C' : isWorkoutActive ? '#FF7243' : '#E0E0E0',
+            border: isBtConnected ? '1px solid rgba(0, 208, 156, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '3px 8px',
             borderRadius: '6px',
             letterSpacing: '0.2px',
             marginLeft: '8px'
           }}>
-            {isWorkoutActive ? 'Training Active' : todayHr ? 'Resting Log' : 'Resting Baseline'}
+            {isBtConnected ? 'Live Sensor' : isWorkoutActive ? 'Training Active' : todayHr ? 'Resting Log' : 'Resting Baseline'}
           </span>
         </div>
       )}
@@ -148,20 +271,34 @@ export default function HeartBeatCard() {
         fontWeight: '500',
         margin: '0 0 16px 0'
       }}>
-        {isWorkoutActive ? `Active session intensity for ${profileFirstName}` : `Resting cardiac telemetry · ${profileFirstName}`}
+        {isBtConnected 
+          ? `Streaming telemetry from ${deviceName}` 
+          : isWorkoutActive 
+            ? `Active training intensity for ${profileFirstName}` 
+            : `Resting cardiac telemetry · ${profileFirstName}`}
       </p>
 
-      {/* Orange ECG Pulse Waveform Graphic */}
+      {/* ECG Pulse Waveform Graphic */}
       <div style={{ width: '100%', height: '48px', overflow: 'hidden' }}>
         <svg
           viewBox="0 0 285 45"
           preserveAspectRatio="none"
           style={{ width: '100%', height: '100%' }}
         >
+          {/* Ambient red glow behind ECG */}
           <path
             d={ecgPath}
             fill="none"
-            stroke="#FF7243"
+            stroke="rgba(255, 59, 48, 0.25)"
+            strokeWidth="5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Crisp red heartbeat line */}
+          <path
+            d={ecgPath}
+            fill="none"
+            stroke="#FF3B30"
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"

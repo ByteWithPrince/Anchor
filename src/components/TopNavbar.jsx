@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
-import { Search, Bell, Crown, Anchor as AnchorIcon, Globe, Cloud, Check, RefreshCw } from 'lucide-react';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
+import { Search, Bell, Anchor as AnchorIcon, Bookmark, Cloud, Check, RefreshCw } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import UserProfileModal from './UserProfileModal';
 import AuthModal from './AuthModal';
@@ -8,6 +8,7 @@ import GlobalSearchModal from './GlobalSearchModal';
 
 export default function TopNavbar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [searchModalOpen, setSearchModalOpen] = useState(false);
@@ -16,6 +17,35 @@ export default function TopNavbar() {
   const isCloudSyncing = useStore(state => state.isCloudSyncing);
   const syncWithCloud = useStore(state => state.syncWithCloud);
   const activeProfile = getActiveProfile();
+
+  const [hoveredTab, setHoveredTab] = useState(null);
+
+  const path = location.pathname;
+  const isDashboardActive = path === '/dashboard' || (path === '/' && currentUser);
+  const isStatsActive = path === '/progress' || path === '/statistics';
+  const isWorkoutsActive = ['/workout-overview', '/log-workout', '/workout-complete', '/workouts'].includes(path);
+  const isNutritionActive = path === '/log-food' || path === '/nutrition';
+  const isScheduleActive = path === '/plan' || path === '/schedule';
+  const isSavedActive = path === '/saved';
+
+  const getPillStyle = (isActive, tabKey) => {
+    const isHovered = hoveredTab === tabKey;
+    return {
+      padding: '8px 20px',
+      borderRadius: '9999px',
+      fontSize: '13px',
+      fontWeight: isActive ? '700' : '600',
+      letterSpacing: '0.2px',
+      whiteSpace: 'nowrap',
+      transition: 'all 0.15s ease',
+      backgroundColor: isActive ? '#FFFFFF' : (isHovered ? 'rgba(255, 255, 255, 0.08)' : 'transparent'),
+      color: isActive ? '#121212' : (isHovered ? '#FFFFFF' : '#8E8E93'),
+      boxShadow: 'none',
+      textDecoration: 'none',
+      outline: 'none',
+      cursor: 'pointer'
+    };
+  };
 
   return (
     <header style={{
@@ -29,7 +59,7 @@ export default function TopNavbar() {
     }}>
       {/* BRAND / LOGO */}
       <div 
-        onClick={() => navigate('/')} 
+        onClick={() => navigate(currentUser ? '/dashboard' : '/')} 
         style={{ 
           display: 'flex', 
           alignItems: 'center', 
@@ -68,118 +98,72 @@ export default function TopNavbar() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
           padding: '6px 8px',
           overflowX: 'auto',
           maxWidth: '100%'
         }}
       >
-        <NavLink
-          to="/"
-          end
-          style={({ isActive }) => ({
-            padding: '8px 20px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease',
-            backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-            color: isActive ? '#161616' : '#C7C7C7'
-          })}
+        <Link
+          to="/dashboard"
+          onMouseEnter={() => setHoveredTab('dashboard')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={getPillStyle(isDashboardActive, 'dashboard')}
         >
           Dashboard
-        </NavLink>
+        </Link>
 
-        <NavLink
-          to="/progress"
-          style={({ isActive }) => ({
-            padding: '8px 20px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease',
-            backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-            color: isActive ? '#161616' : '#C7C7C7'
-          })}
+        <Link
+          to="/statistics"
+          onMouseEnter={() => setHoveredTab('statistics')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={getPillStyle(isStatsActive, 'statistics')}
         >
           Statistics
-        </NavLink>
+        </Link>
 
-        <NavLink
+        <Link
           to="/workout-overview"
-          style={({ isActive }) => ({
-            padding: '8px 20px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease',
-            backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-            color: isActive ? '#161616' : '#C7C7C7'
-          })}
+          onMouseEnter={() => setHoveredTab('workouts')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={getPillStyle(isWorkoutsActive, 'workouts')}
         >
           Workouts
-        </NavLink>
+        </Link>
 
-        <NavLink
+        <Link
           to="/log-food"
-          style={({ isActive }) => ({
-            padding: '8px 20px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease',
-            backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-            color: isActive ? '#161616' : '#C7C7C7'
-          })}
+          onMouseEnter={() => setHoveredTab('nutrition')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={getPillStyle(isNutritionActive, 'nutrition')}
         >
           Nutrition
-        </NavLink>
+        </Link>
 
-        <NavLink
+        <Link
           to="/plan"
-          style={({ isActive }) => ({
-            padding: '8px 20px',
-            borderRadius: '9999px',
-            fontSize: '13px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
-            transition: 'all 0.2s ease',
-            backgroundColor: isActive ? '#FFFFFF' : 'transparent',
-            color: isActive ? '#161616' : '#C7C7C7'
-          })}
+          onMouseEnter={() => setHoveredTab('schedule')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={getPillStyle(isScheduleActive, 'schedule')}
         >
           Schedule
-        </NavLink>
+        </Link>
 
-        {/* Public SaaS Showcase Link */}
-        <NavLink
-          to="/landing"
-          style={({ isActive }) => ({
-            padding: '8px 16px',
-            borderRadius: '9999px',
-            fontSize: '12px',
-            fontWeight: '700',
-            letterSpacing: '0.2px',
-            whiteSpace: 'nowrap',
+        {/* Saved Workout Templates Link */}
+        <Link
+          to="/saved"
+          onMouseEnter={() => setHoveredTab('saved')}
+          onMouseLeave={() => setHoveredTab(null)}
+          style={{
+            ...getPillStyle(isSavedActive, 'saved'),
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            backgroundColor: isActive ? '#FFFFFF' : 'rgba(255, 255, 255, 0.05)',
-            color: isActive ? '#161616' : '#FF7243'
-          })}
+            gap: '6px'
+          }}
         >
-          <Globe size={13} />
-          <span>Product</span>
-        </NavLink>
+          <Bookmark size={13} />
+          <span>Saved</span>
+        </Link>
       </nav>
 
       {/* RIGHT CONTROLS */}
@@ -240,28 +224,6 @@ export default function TopNavbar() {
             <Cloud size={14} />
           )}
           <span>{isCloudSyncing ? 'Syncing...' : currentUser ? 'Cloud Synced' : 'Cloud Sync'}</span>
-        </button>
-
-        {/* Multi-User / Athlete Profile Pill Button */}
-        <button 
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: '#A4D037',
-            color: '#161616',
-            fontWeight: '800',
-            fontSize: '13px',
-            padding: '10px 18px',
-            borderRadius: '9999px',
-            boxShadow: 'none',
-            border: 'none',
-            cursor: 'pointer'
-          }}
-          onClick={() => setProfileModalOpen(true)}
-        >
-          <Crown size={15} strokeWidth={2.8} />
-          <span>{activeProfile?.name?.split(' ')[0] || 'PRO'}</span>
         </button>
 
         {/* Notification button */}

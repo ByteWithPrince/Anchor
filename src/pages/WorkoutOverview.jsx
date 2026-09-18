@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore } from '../store/useStore';
+import { useStore, getTodayStr } from '../store/useStore';
 import { 
   ArrowLeft, 
   Play, 
@@ -12,7 +12,8 @@ import {
   Compass, 
   CheckCircle2, 
   ChevronLeft, 
-  ChevronRight 
+  ChevronRight,
+  Coffee
 } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
 import { progressionService } from '../services/progressionService';
@@ -27,6 +28,14 @@ export default function WorkoutOverview() {
   const getPreviousPerformance = useStore(state => state.getPreviousPerformance);
   const getNextRoutineInSplit = useStore(state => state.getNextRoutineInSplit);
   const lastCompletedRoutineName = useStore(state => state.lastCompletedRoutineName);
+  const workoutLogs = useStore(state => state.workoutLogs);
+  const todayStr = getTodayStr();
+  const todaySessions = useMemo(() => (workoutLogs || []).filter(w => w.date === todayStr), [workoutLogs, todayStr]);
+
+  const isRoutineCompletedToday = (name) => {
+    if (!name) return false;
+    return todaySessions.some(sess => sess.name?.toLowerCase().trim() === name.toLowerCase().trim());
+  };
 
   const sliderRef = useRef(null);
   const isDownRef = useRef(false);
@@ -97,8 +106,31 @@ export default function WorkoutOverview() {
     return getNextRoutineInSplit();
   }, [getNextRoutineInSplit]);
 
-  // Determine initial selected routine
+  // Determine initial selected routine (avoid defaulting to already completed routine)
   const initialRoutine = useMemo(() => {
+    const isTodayScheduledDone = todaySchedule && isRoutineCompletedToday(todaySchedule.name);
+
+    // If today's schedule is active and NOT done yet, prioritize it
+    if (todaySchedule && !todaySchedule.isRest && todaySchedule.exercises?.length > 0 && !isTodayScheduledDone) {
+      return {
+        id: `day-${currentDayIndex}`,
+        name: todaySchedule.name,
+        exercises: todaySchedule.exercises,
+        source: "Today's Schedule",
+        isRest: false
+      };
+    }
+    // If today's routine was already finished, choose next routine in sequence!
+    if (nextInSplit && nextInSplit.exercises?.length > 0 && !isRoutineCompletedToday(nextInSplit.name)) {
+      return {
+        id: 'next-in-split',
+        name: nextInSplit.name,
+        exercises: nextInSplit.exercises,
+        source: 'Next in Split Rotation',
+        isRest: false
+      };
+    }
+    // Fallback to today's schedule if it exists
     if (todaySchedule && !todaySchedule.isRest && todaySchedule.exercises?.length > 0) {
       return {
         id: `day-${currentDayIndex}`,
@@ -134,9 +166,10 @@ export default function WorkoutOverview() {
       source: 'Blank Workout',
       isRest: false
     };
-  }, [todaySchedule, nextInSplit, customRoutines, currentDayIndex]);
+  }, [todaySchedule, nextInSplit, customRoutines, currentDayIndex, todaySessions]);
 
   const [selectedRoutine, setSelectedRoutine] = useState(initialRoutine);
+  const isSelectedCompletedToday = isRoutineCompletedToday(selectedRoutine?.name);
 
   // Available routines to switch between
   const availableRoutines = useMemo(() => {
@@ -154,6 +187,7 @@ export default function WorkoutOverview() {
             dayLabel: dayName,
             exercises: item.exercises,
             isToday: idx === currentDayIndex,
+            isCompletedToday: isRoutineCompletedToday(item.name),
             type: 'split'
           });
         }
@@ -168,13 +202,14 @@ export default function WorkoutOverview() {
           name: cr.name,
           dayLabel: 'Custom',
           exercises: cr.exercises,
+          isCompletedToday: isRoutineCompletedToday(cr.name),
           type: 'custom'
         });
       });
     }
 
     return list;
-  }, [plan, customRoutines, currentDayIndex]);
+  }, [plan, customRoutines, currentDayIndex, todaySessions]);
 
   const exercises = selectedRoutine?.exercises || [];
   const numExercises = exercises.length;
@@ -186,6 +221,15 @@ export default function WorkoutOverview() {
       startBlankWorkout(selectedRoutine?.name || 'Quick Workout');
     } else {
       startWorkout(selectedRoutine.name, exercises);
+    }
+    navigate('/log-workout');
+  };
+
+  const handleStartNextInSplit = () => {
+    if (nextInSplit?.exercises && nextInSplit.exercises.length > 0) {
+      startWorkout(nextInSplit.name, nextInSplit.exercises);
+    } else {
+      startBlankWorkout(nextInSplit?.name || 'Workout Session');
     }
     navigate('/log-workout');
   };
@@ -209,7 +253,7 @@ export default function WorkoutOverview() {
         <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <button 
-              onClick={() => navigate('/')} 
+              onClick={() => navigate('/dashboard')} 
               style={{ 
                 width: '38px', 
                 height: '38px', 
@@ -287,7 +331,7 @@ export default function WorkoutOverview() {
         {/* REST DAY BANNER (NON-BLOCKING) */}
         {todaySchedule?.isRest && (
           <div style={{
-            background: 'linear-gradient(135deg, rgba(255, 114, 67, 0.12) 0%, rgba(20, 24, 34, 0.6) 100%)',
+            background: 'rgba(255, 114, 67, 0.08)',
             border: '1px solid rgba(255, 114, 67, 0.35)',
             borderTop: '1.5px solid rgba(255, 114, 67, 0.5)',
             backdropFilter: 'blur(20px)',
@@ -311,41 +355,42 @@ export default function WorkoutOverview() {
                 justifyContent: 'center',
                 color: '#FF7243'
               }}>
-                <Clock size={20} />
+                <Coffee size={20} />
               </div>
               <div>
-                <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF' }}>
-                  Scheduled Rest Day Today
-                </div>
-                <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '2px' }}>
-                  {nextInSplit 
-                    ? `Next up in your split rotation is ${nextInSplit.name}. You can train it today or pick any routine below.`
-                    : 'Take time to recover, or select any routine below to train right now.'}
-                </div>
+                <h3 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0 }}>
+                  Active Recovery & Rest Day
+                </h3>
+                <p style={{ fontSize: '13px', color: '#8E8E93', margin: '3px 0 0 0' }}>
+                  Rest days rebuild muscle glycogen and prevent central nervous system fatigue.
+                </p>
               </div>
             </div>
+
             {nextInSplit && (
               <button
-                onClick={() => setSelectedRoutine({
-                  id: 'next-in-split',
-                  name: nextInSplit.name,
-                  exercises: nextInSplit.exercises,
-                  source: 'Next in Split',
-                  isRest: false
-                })}
+                onClick={() => {
+                  setSelectedRoutine({
+                    id: 'next-in-split',
+                    name: nextInSplit.name,
+                    exercises: nextInSplit.exercises,
+                    source: 'Next in Split',
+                    isRest: false
+                  });
+                }}
                 style={{
-                  background: '#FF7243',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
                   color: '#FFFFFF',
-                  border: 'none',
                   borderRadius: '9999px',
-                  padding: '8px 18px',
+                  padding: '8px 16px',
                   fontSize: '12px',
-                  fontWeight: '800',
+                  fontWeight: '700',
                   cursor: 'pointer',
-                  boxShadow: '0 2px 10px rgba(255, 114, 67, 0.35)'
+                  transition: 'all 0.2s ease'
                 }}
               >
-                Load {nextInSplit.name}
+                Skip Rest & Train {nextInSplit.name.split(' ')[0]} →
               </button>
             )}
           </div>
@@ -356,7 +401,7 @@ export default function WorkoutOverview() {
           <div 
             className="glass-card-subtle"
             style={{
-              background: 'linear-gradient(135deg, rgba(0, 208, 156, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(14, 18, 26, 0.55)',
+              background: 'rgba(0, 208, 156, 0.06)',
               borderRadius: '20px',
               padding: '16px 20px',
               border: '1px solid rgba(0, 208, 156, 0.25)',
@@ -381,36 +426,35 @@ export default function WorkoutOverview() {
             </div>
 
             <button
-              onClick={() => setSelectedRoutine({
-                id: 'next-in-split',
-                name: nextInSplit.name,
-                exercises: nextInSplit.exercises,
-                source: 'Next in Split',
-                isRest: false
-              })}
+              onClick={handleStartNextInSplit}
+              title={`Immediately launch live session for ${nextInSplit.name}`}
               style={{
-                background: selectedRoutine?.name === nextInSplit.name ? '#00D09C' : 'rgba(255, 255, 255, 0.08)',
-                color: selectedRoutine?.name === nextInSplit.name ? '#161616' : '#FFFFFF',
-                border: selectedRoutine?.name === nextInSplit.name ? 'none' : '1px solid rgba(255, 255, 255, 0.12)',
+                background: '#00D09C',
+                color: '#121212',
+                border: 'none',
                 borderRadius: '9999px',
-                padding: '6px 14px',
+                padding: '7px 16px',
                 fontSize: '12px',
-                fontWeight: '700',
+                fontWeight: '800',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px'
+                gap: '6px',
+                boxShadow: 'none',
+                transition: 'all 0.2s ease'
               }}
+              onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.02)'}
+              onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
             >
-              {selectedRoutine?.name === nextInSplit.name && <CheckCircle2 size={13} />}
-              <span>{selectedRoutine?.name === nextInSplit.name ? 'Active Preview' : 'Select Next Up'}</span>
+              <Play size={12} fill="currentColor" />
+              <span>Start Next Up ({nextInSplit.name.split(' ')[0]})</span>
             </button>
           </div>
         )}
 
         {/* ROUTINES HORIZONTAL SLIDER (SINGLE LINE, ZERO-VISIBLE SCROLLBAR, WHEEL & GESTURE SCROLL) */}
         <div style={{ marginBottom: '28px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '12px', fontWeight: '800', color: '#8E8E93', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
                 Select Routine to Train
@@ -511,8 +555,8 @@ export default function WorkoutOverview() {
                     minWidth: '175px',
                     textAlign: 'left',
                     background: isSelected 
-                      ? 'linear-gradient(135deg, rgba(0, 208, 156, 0.22) 0%, rgba(0, 208, 156, 0.05) 100%), rgba(16, 24, 32, 0.65)' 
-                      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%), rgba(12, 16, 24, 0.45)',
+                      ? 'rgba(0, 208, 156, 0.16)' 
+                      : 'linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(18, 24, 38, 0.4)',
                     border: isSelected ? '1.5px solid #00D09C' : '1px solid rgba(255, 255, 255, 0.09)',
                     borderTop: isSelected ? '1.5px solid #00D09C' : '1px solid rgba(255, 255, 255, 0.18)',
                     backdropFilter: 'blur(16px)',
@@ -535,9 +579,23 @@ export default function WorkoutOverview() {
                     }}>
                       {r.dayLabel} {r.isToday && '· TODAY'}
                     </span>
-                    <span style={{ fontSize: '10px', color: '#8E8E93', fontWeight: '600' }}>
-                      {r.exercises.length} ex
-                    </span>
+                    {r.isCompletedToday ? (
+                      <span style={{
+                        fontSize: '9px',
+                        fontWeight: '800',
+                        color: '#00D09C',
+                        background: 'rgba(0, 208, 156, 0.15)',
+                        border: '1px solid rgba(0, 208, 156, 0.3)',
+                        padding: '1px 6px',
+                        borderRadius: '4px'
+                      }}>
+                        ✓ DONE
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: '10px', color: '#8E8E93', fontWeight: '600' }}>
+                        {r.exercises.length} ex
+                      </span>
+                    )}
                   </div>
                   <div style={{
                     fontSize: '14px',
@@ -571,12 +629,27 @@ export default function WorkoutOverview() {
             marginBottom: '28px'
           }}
         >
-          {/* Header of Active Routine */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+          {/* Active Routine Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
             <div>
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#00D09C', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
-                PREVIEWING SESSION
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '11px', fontWeight: '800', color: '#00D09C', textTransform: 'uppercase', letterSpacing: '0.8px' }}>
+                  PREVIEWING SESSION
+                </span>
+                {isSelectedCompletedToday && (
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: '800',
+                    color: '#0D0D0D',
+                    background: '#00D09C',
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    letterSpacing: '0.4px'
+                  }}>
+                    ✓ COMPLETED TODAY
+                  </span>
+                )}
+              </div>
               <h2 style={{ fontSize: '30px', fontWeight: '800', color: '#FFFFFF', letterSpacing: '-0.8px', marginTop: '4px' }}>
                 {selectedRoutine?.name || 'Workout Session'}
               </h2>
@@ -599,6 +672,75 @@ export default function WorkoutOverview() {
               </div>
             </div>
           </div>
+
+          {/* Already Completed Recovery Banner */}
+          {isSelectedCompletedToday && (
+            <div style={{
+              background: 'rgba(0, 208, 156, 0.1)',
+              border: '1px solid rgba(0, 208, 156, 0.3)',
+              borderRadius: '16px',
+              padding: '14px 18px',
+              marginBottom: '22px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: '#00D09C',
+                  color: '#0D0D0D',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: '900',
+                  fontSize: '15px'
+                }}>
+                  ✓
+                </div>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#FFFFFF' }}>
+                    Session Already Completed Today
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#00D09C', marginTop: '1px' }}>
+                    Great session! Prioritize protein & rest. Muscles grow during recovery intervals.
+                  </div>
+                </div>
+              </div>
+
+              {nextInSplit && nextInSplit.name !== selectedRoutine?.name && (
+                <button
+                  onClick={() => setSelectedRoutine({
+                    id: 'next-in-split',
+                    name: nextInSplit.name,
+                    exercises: nextInSplit.exercises,
+                    source: 'Next in Split Rotation',
+                    isRest: false
+                  })}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    color: '#FFFFFF',
+                    padding: '8px 16px',
+                    borderRadius: '9999px',
+                    fontSize: '12px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>Switch to Next: {nextInSplit.name}</span>
+                  <ChevronRight size={14} />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Exercises List in Routine */}
           {exercises.length === 0 ? (
@@ -677,7 +819,7 @@ export default function WorkoutOverview() {
                       borderRadius: '9999px',
                       boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
                     }}>
-                      {ex.sets || 3} Sets × {ex.reps || 10} Reps {ex.weight ? `@ ${ex.weight} lbs` : ''}
+                      {ex.sets || 3} Sets × {ex.reps || 10} Reps {ex.weight ? `@ ${ex.weight} kg` : ''}
                     </div>
                   </div>
                 );
@@ -692,38 +834,110 @@ export default function WorkoutOverview() {
           bottom: 0,
           left: 0,
           right: 0,
-          background: 'transparent',
+          background: 'linear-gradient(180deg, transparent 0%, rgba(13, 13, 13, 0.9) 70%, #0D0D0D 100%)',
           padding: '16px 24px',
           display: 'flex',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '8px',
           pointerEvents: 'none',
           zIndex: 30
         }}>
-          <button
-            onClick={handleStartWorkout}
-            style={{
+          {isSelectedCompletedToday ? (
+            <div style={{
               maxWidth: '600px',
               width: '100%',
-              background: '#00D09C',
-              color: '#161616',
-              fontWeight: '900',
-              fontSize: '16px',
-              padding: '16px 24px',
-              borderRadius: '9999px',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              boxShadow: 'none',
-              border: 'none',
-              letterSpacing: '0.2px',
-              cursor: 'pointer',
+              flexDirection: 'column',
+              gap: '8px',
               pointerEvents: 'auto'
-            }}
-          >
-            <Play size={18} fill="#161616" stroke="#161616" />
-            <span>START {selectedRoutine?.name?.toUpperCase() || 'SESSION'}</span>
-          </button>
+            }}>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(0, 208, 156, 0.35)',
+                color: '#FFFFFF',
+                fontWeight: '800',
+                fontSize: '14px',
+                padding: '13px 20px',
+                borderRadius: '9999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                backdropFilter: 'blur(16px)'
+              }}>
+                <CheckCircle2 size={17} color="#00D09C" />
+                <span>SESSION COMPLETED TODAY · TAKE REST</span>
+              </div>
+
+              {nextInSplit && nextInSplit.name !== selectedRoutine?.name ? (
+                <button
+                  onClick={handleStartNextInSplit}
+                  style={{
+                    background: '#00D09C',
+                    color: '#0D0D0D',
+                    fontWeight: '900',
+                    fontSize: '14px',
+                    padding: '13px 20px',
+                    borderRadius: '9999px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    boxShadow: 'none'
+                  }}
+                >
+                  <Play size={16} fill="#0D0D0D" stroke="#0D0D0D" />
+                  <span>START NEXT UP: {nextInSplit.name.toUpperCase()}</span>
+                </button>
+              ) : null}
+
+              <button
+                onClick={handleStartWorkout}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#8E8E93',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  textAlign: 'center',
+                  padding: '2px'
+                }}
+              >
+                Need extra volume? Repeat session anyway
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={handleStartWorkout}
+              style={{
+                maxWidth: '600px',
+                width: '100%',
+                background: '#00D09C',
+                color: '#161616',
+                fontWeight: '900',
+                fontSize: '16px',
+                padding: '16px 24px',
+                borderRadius: '9999px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                boxShadow: 'none',
+                border: 'none',
+                letterSpacing: '0.2px',
+                cursor: 'pointer',
+                pointerEvents: 'auto'
+              }}
+            >
+              <Play size={18} fill="#161616" stroke="#161616" />
+              <span>START {selectedRoutine?.name?.toUpperCase() || 'SESSION'}</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

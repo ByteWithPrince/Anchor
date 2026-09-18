@@ -35,7 +35,7 @@ export default function Landing() {
   const [isDemoParsing, setIsDemoParsing] = useState(false);
 
   // Interactive Sandbox 2: 1RM Overload demo
-  const [demoWeight, setDemoWeight] = useState(225);
+  const [demoWeight, setDemoWeight] = useState(100);
   const [demoReps, setDemoReps] = useState(6);
   const calculated1RM = progressionService.calculate1RM(demoWeight, demoReps);
 
@@ -234,26 +234,51 @@ export default function Landing() {
           flexWrap: 'wrap',
           marginBottom: '64px'
         }}>
-          <button
-            onClick={() => handleOpenAuth('register')}
-            style={{
-              background: '#00D09C',
-              color: '#0D0D0D',
-              padding: '18px 36px',
-              borderRadius: '9999px',
-              fontWeight: '800',
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              boxShadow: 'none',
-              border: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            <span>{isAuthenticated ? 'RESUME DASHBOARD' : 'GET STARTED FREE'}</span>
-            <ArrowRight size={18} strokeWidth={3} />
-          </button>
+          {isAuthenticated ? (
+            <button
+              onClick={() => navigate('/dashboard')}
+              style={{
+                background: '#00D09C',
+                color: '#0D0D0D',
+                padding: '18px 36px',
+                borderRadius: '9999px',
+                fontWeight: '800',
+                fontSize: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                boxShadow: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease'
+              }}
+            >
+              <span>RESUME TRAINING AS {currentUser?.name ? currentUser.name.toUpperCase() : 'ATHLETE'}</span>
+              <ArrowRight size={18} strokeWidth={3} />
+            </button>
+          ) : (
+            <button
+              onClick={() => handleOpenAuth('register')}
+              style={{
+                background: '#00D09C',
+                color: '#0D0D0D',
+                padding: '18px 36px',
+                borderRadius: '9999px',
+                fontWeight: '800',
+                fontSize: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                boxShadow: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                transition: 'transform 0.15s ease'
+              }}
+            >
+              <span>GET STARTED FREE (SUB-15S)</span>
+              <ArrowRight size={18} strokeWidth={3} />
+            </button>
+          )}
 
           <a
             href="#sandbox"
@@ -435,14 +460,14 @@ export default function Landing() {
 
             <div style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600', marginBottom: '8px' }}>
-                <span>Weight: {demoWeight} lbs</span>
+                <span>Weight: {demoWeight} kg</span>
                 <span>Reps: {demoReps}</span>
               </div>
               <input
                 type="range"
-                min="95"
-                max="405"
-                step="5"
+                min="40"
+                max="220"
+                step="2.5"
                 value={demoWeight}
                 onChange={e => setDemoWeight(Number(e.target.value))}
                 style={{ width: '100%', accentColor: '#00D09C', marginBottom: '14px' }}
@@ -462,14 +487,14 @@ export default function Landing() {
               <div>
                 <div style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Calculated 1RM</div>
                 <div style={{ fontSize: '28px', fontWeight: '800', color: '#00D09C' }}>
-                  {calculated1RM} <span style={{ fontSize: '14px', color: '#8E8E93' }}>lbs</span>
+                  {calculated1RM} <span style={{ fontSize: '14px', color: '#8E8E93' }}>kg</span>
                 </div>
               </div>
 
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Next Target (+5 lbs)</div>
+                <div style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>Next Target (+2.5 kg)</div>
                 <div style={{ fontSize: '20px', fontWeight: '800', color: '#FF7243' }}>
-                  {demoWeight + 5} lbs × {demoReps}
+                  {demoWeight + 2.5} kg × {demoReps}
                 </div>
               </div>
             </div>

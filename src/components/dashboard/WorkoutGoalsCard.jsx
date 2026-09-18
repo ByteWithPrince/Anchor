@@ -1,8 +1,8 @@
-import { MoreHorizontal, CheckCircle2 } from 'lucide-react';
+import { GripVertical, CheckCircle2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useStore, getTodayStr } from '../../store/useStore';
 
-export default function WorkoutGoalsCard() {
+export default function WorkoutGoalsCard({ dragHandleProps }) {
   const navigate = useNavigate();
   const plan = useStore(state => state.plan);
   const workoutLogs = useStore(state => state.workoutLogs);
@@ -52,7 +52,7 @@ export default function WorkoutGoalsCard() {
   // Calculate completion percentage
   let completionPct = 0;
   if (todaySessions.length > 0) {
-    completionPct = plannedSetsCount > 0 ? Math.min(100, Math.round((completedSetsCount / plannedSetsCount) * 100)) : 100;
+    completionPct = 100;
   } else if (isWorkoutInProgress) {
     completionPct = plannedSetsCount > 0 ? Math.min(100, Math.round((completedSetsCount / plannedSetsCount) * 100)) : 0;
   } else {
@@ -103,8 +103,12 @@ export default function WorkoutGoalsCard() {
             </span>
           )}
         </div>
-        <button 
-          aria-label="Goals Options"
+        <div 
+          {...dragHandleProps}
+          role="button"
+          tabIndex={0}
+          aria-label="Move Card"
+          title="Drag to rearrange dashboard cards"
           style={{
             width: '32px',
             height: '32px',
@@ -114,12 +118,12 @@ export default function WorkoutGoalsCard() {
             alignItems: 'center',
             justifyContent: 'center',
             color: '#8E8E93',
-            border: 'none',
-            cursor: 'pointer'
+            cursor: 'grab',
+            transition: 'all 0.2s ease'
           }}
         >
-          <MoreHorizontal size={18} />
-        </button>
+          <GripVertical size={16} />
+        </div>
       </div>
 
       {/* Center Circular Ring Gauge */}
@@ -201,9 +205,7 @@ export default function WorkoutGoalsCard() {
           lineHeight: 1.4
         }}>
           {latestSession 
-            ? (completionPct >= 100 
-                ? `Daily goal smashed! ${latestSession.name} logged.` 
-                : `${latestSession.name} logged (${completedSetsCount}/${plannedSetsCount} sets). Keep it up!`)
+            ? `Daily workout completed! ${latestSession.name} logged. Take rest & recover.`
             : isWorkoutInProgress 
               ? `Session in progress: ${activeWorkout.name}. Tap to resume!`
               : todayPlannedDay?.isRest 

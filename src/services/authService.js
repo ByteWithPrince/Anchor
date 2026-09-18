@@ -1,6 +1,6 @@
 /**
  * Client authentication and cloud sync service for Anchor.
- * Manages JWT tokens, remote API communication, and offline-first fallback.
+ * Manages JWT tokens, automatic refresh rotation, remote API communication, and offline-first fallback.
  */
 
 const TOKEN_KEY = 'anchor_jwt_token';
@@ -51,11 +51,47 @@ export const authService = {
     }
   },
 
-  register: async (email, password, name, role = 'Athlete') => {
+  /**
+   * Authenticated fetch helper with automatic token refresh on 401 response.
+   */
+  fetchWithAuth: async (url, options = {}) => {
+    let token = authService.getToken();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {})
+    };
+
+    let res = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include'
+    });
+
+    // If unauthorized, attempt silent refresh once
+    if (res.status === 401 && !url.includes('/api/auth/refresh')) {
+      const refreshed = await authService.refreshToken();
+      if (refreshed && refreshed.token) {
+        headers.Authorization = `Bearer ${refreshed.token}`;
+        res = await fetch(url, {
+          ...options,
+          headers,
+          credentials: 'include'
+        });
+      } else {
+        authService.clearAuth();
+      }
+    }
+
+    return res;
+  },
+
+  register: async (email, password, name, role = 'Athlete', guestData = null) => {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name, role })
+      credentials: 'include',
+      body: JSON.stringify({ email, password, name, role, guestData })
     });
 
     const data = await res.json();
@@ -68,11 +104,12 @@ export const authService = {
     return data;
   },
 
-  login: async (email, password) => {
+  login: async (email, password, guestData = null) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      credentials: 'include',
+      body: JSON.stringify({ email, password, guestData })
     });
 
     const data = await res.json();
@@ -85,14 +122,93 @@ export const authService = {
     return data;
   },
 
+  loginWithGoogle: async ({ credential, email, name, googleId, avatar, guestData }) => {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ credential, email, name, googleId, avatar, guestData })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to authenticate with Google');
+    }
+
+    authService.setToken(data.token);
+    authService.setStoredUser(data.user);
+    return data;
+  },
+
+  refreshToken: async () => {
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+
+      if (!res.ok) {
+        authService.clearAuth();
+        return null;
+      }
+
+      const data = await res.json();
+      if (data.token) {
+        authService.setToken(data.token);
+        if (data.user) authService.setStoredUser(data.user);
+      }
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
+  logout: async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include'
+      });
+    } catch (e) {
+      console.warn('Logout request failed:', e);
+    } finally {
+      authService.clearAuth();
+    }
+  },
+
+  logoutAll: async () => {
+    try {
+      await authService.fetchWithAuth('/api/auth/logout-all', { method: 'POST' });
+    } catch (e) {
+      console.warn('Logout all request failed:', e);
+    } finally {
+      authService.clearAuth();
+    }
+  },
+
+  deleteAccount: async () => {
+    const res = await authService.fetchWithAuth('/api/auth/account', { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete account');
+    authService.clearAuth();
+    return data;
+  },
+
+  exportData: async () => {
+    const res = await authService.fetchWithAuth('/api/auth/export');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to export athlete data');
+    return data;
+  },
+
   fetchMe: async () => {
     const token = authService.getToken();
     if (!token) return null;
 
     try {
-      const res = await fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await authService.fetchWithAuth('/api/auth/me');
       if (!res.ok) {
         authService.clearAuth();
         return null;
@@ -110,12 +226,8 @@ export const authService = {
     if (!token) return { success: false, reason: 'unauthenticated' };
 
     try {
-      const res = await fetch('/api/sync/delta', {
+      const res = await authService.fetchWithAuth('/api/sync/delta', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify({ lastSyncedAt, mutations })
       });
       const data = await res.json();
@@ -124,44 +236,5 @@ export const authService = {
       console.warn('Delta sync failed, local offline fallback active:', err);
       return { success: false, error: err.message };
     }
-  },
-
-  syncToCloud: async (clientPayload) => {
-    const token = authService.getToken();
-    if (!token) return { success: false, reason: 'unauthenticated' };
-
-    try {
-      const res = await fetch('/api/user/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ data: clientPayload })
-      });
-      const data = await res.json();
-      return data;
-    } catch (err) {
-      console.warn('Sync to cloud failed, will retry later:', err);
-      return { success: false, error: err.message };
-    }
-  },
-
-  fetchFromCloud: async () => {
-    const token = authService.getToken();
-    if (!token) return null;
-
-    try {
-      const res = await fetch('/api/user/sync', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data;
-    } catch (err) {
-      console.warn('Fetch from cloud failed:', err);
-      return null;
-    }
   }
 };
-

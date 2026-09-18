@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dumbbell, Utensils, Trash2 } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
-import FloatingAction from '../components/FloatingAction';
 import ActivityChartCard from '../components/dashboard/ActivityChartCard';
 import WorkoutGoalsCard from '../components/dashboard/WorkoutGoalsCard';
 import HealthScoreCard from '../components/dashboard/HealthScoreCard';
@@ -13,24 +12,116 @@ import DistanceCard from '../components/dashboard/DistanceCard';
 import { useStore, getTodayStr } from '../store/useStore';
 import SEOHead from '../components/SEOHead';
 
+const DEFAULT_CARD_ORDER = ['activity', 'workout-goals', 'vitals', 'weight-body', 'calorie-analysis', 'distance'];
+
+const CARD_DEFINITIONS = {
+  'activity': {
+    id: 'activity',
+    className: 'grid-col-6',
+    render: (props) => <ActivityChartCard {...props} />
+  },
+  'workout-goals': {
+    id: 'workout-goals',
+    className: 'grid-col-3',
+    render: (props) => <WorkoutGoalsCard {...props} />
+  },
+  'vitals': {
+    id: 'vitals',
+    className: 'grid-col-3',
+    render: (props) => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', height: '100%' }}>
+        <HealthScoreCard {...props} />
+        <HeartBeatCard {...props} />
+      </div>
+    )
+  },
+  'weight-body': {
+    id: 'weight-body',
+    className: 'grid-col-3',
+    render: (props) => <WeightGoalsCard {...props} />
+  },
+  'calorie-analysis': {
+    id: 'calorie-analysis',
+    className: 'grid-col-6',
+    render: (props) => <CalorieAnalysisCard {...props} />
+  },
+  'distance': {
+    id: 'distance',
+    className: 'grid-col-3',
+    render: (props) => <DistanceCard {...props} />
+  }
+};
+
+const normalizeOrder = (order) => {
+  if (!Array.isArray(order) || order.length === 0) return DEFAULT_CARD_ORDER;
+  const result = [];
+  for (const item of order) {
+    if (item === 'health-score' || item === 'heart-beat') {
+      if (!result.includes('vitals')) result.push('vitals');
+    } else if (CARD_DEFINITIONS[item] && !result.includes(item)) {
+      result.push(item);
+    }
+  }
+  for (const key of DEFAULT_CARD_ORDER) {
+    if (!result.includes(key)) result.push(key);
+  }
+  return result;
+};
+
 export default function Home() {
   const navigate = useNavigate();
-  const [showMenu, setShowMenu] = useState(false);
   
   const plan = useStore(state => state.plan);
   const foodLogs = useStore(state => state.foodLogs);
   const deleteFoodLog = useStore(state => state.deleteFoodLog);
-  const activeWorkout = useStore(state => state.activeWorkout);
   const authToken = useStore(state => state.authToken);
+  const storedCardOrder = useStore(state => state.dashboardCardOrder);
+  const setDashboardCardOrder = useStore(state => state.setDashboardCardOrder);
   
+  const [cardsOrder, setCardsOrder] = useState(() => normalizeOrder(storedCardOrder));
+  const [draggedCardId, setDraggedCardId] = useState(null);
+  const [dragOverCardId, setDragOverCardId] = useState(null);
+
   const todayStr = getTodayStr();
   const todayFoods = foodLogs.filter(log => log.date === todayStr);
-  const isWorkoutInProgress = activeWorkout?.date === todayStr;
   
   const targetCalories = Number(plan?.macroTargets?.calories) || 2000;
   const totalCalories = todayFoods.reduce((acc, curr) => acc + (Number(curr.calories) || 0), 0);
   const netDelta = targetCalories - totalCalories;
 
+  const handleDragStart = (id) => {
+    setDraggedCardId(id);
+  };
+
+  const handleDragOver = (e, targetId) => {
+    e.preventDefault();
+    if (dragOverCardId !== targetId) {
+      setDragOverCardId(targetId);
+    }
+  };
+
+  const handleDrop = (e, targetId) => {
+    e.preventDefault();
+    if (!draggedCardId || draggedCardId === targetId) {
+      setDraggedCardId(null);
+      setDragOverCardId(null);
+      return;
+    }
+
+    const newOrder = [...cardsOrder];
+    const srcIdx = newOrder.indexOf(draggedCardId);
+    const tgtIdx = newOrder.indexOf(targetId);
+    if (srcIdx !== -1 && tgtIdx !== -1) {
+      newOrder.splice(srcIdx, 1);
+      newOrder.splice(tgtIdx, 0, draggedCardId);
+      setCardsOrder(newOrder);
+      if (setDashboardCardOrder) {
+        setDashboardCardOrder(newOrder);
+      }
+    }
+    setDraggedCardId(null);
+    setDragOverCardId(null);
+  };
 
   return (
     <div className="animate-slide-up" style={{ paddingBottom: '100px', width: '100%' }}>
@@ -97,51 +188,90 @@ export default function Home() {
         </div>
       </div>
 
-      {/* VEXORA 2-ROW / 3-COLUMN 12-COL GRID */}
+      {/* VEXORA DYNAMIC CARD GRID WITH DRAG & DROP REORDERING */}
       <div className="vexora-dashboard-grid">
-        {/* ROW 1 */}
-        {/* Col 1: Activity Chart Card (6 of 12 columns = 50% width) */}
-        <div className="grid-col-6">
-          <ActivityChartCard />
-        </div>
+        {cardsOrder.map((cardId) => {
+          const cardDef = CARD_DEFINITIONS[cardId];
+          if (!cardDef) return null;
 
-        {/* Col 2: Workout Goals Circular Arc Gauge (3 of 12 columns = 25% width) */}
-        <div className="grid-col-3">
-          <WorkoutGoalsCard />
-        </div>
+          const isOver = dragOverCardId === cardId && draggedCardId !== cardId;
+          const isDragging = draggedCardId === cardId;
 
-        {/* Col 3: Stacked Health Score + Heart Beat Pulse (3 of 12 columns = 25% width) */}
-        <div className="grid-col-3" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <HealthScoreCard />
-          <HeartBeatCard />
-        </div>
-
-        {/* ROW 2 */}
-        {/* Col 1: Weight & Performance Goals (3 of 12 columns = 25% width) */}
-        <div className="grid-col-3">
-          <WeightGoalsCard />
-        </div>
-
-        {/* Col 2: Calories Analysis Multi-Segmented Bar (6 of 12 columns = 50% width) */}
-        <div className="grid-col-6">
-          <CalorieAnalysisCard />
-        </div>
-
-        {/* Col 3: Distance & Satellite Street Map (3 of 12 columns = 25% width) */}
-        <div className="grid-col-3">
-          <DistanceCard />
-        </div>
+          return (
+            <div
+              key={cardId}
+              className={cardDef.className}
+              onDragOver={(e) => handleDragOver(e, cardId)}
+              onDrop={(e) => handleDrop(e, cardId)}
+              style={{
+                opacity: isDragging ? 0.4 : 1,
+                transform: isOver ? 'scale(1.01)' : 'scale(1)',
+                transition: 'transform 0.2s ease, opacity 0.2s ease',
+                borderRadius: '24px',
+                boxShadow: isOver ? '0 0 0 2px #00D09C' : 'none'
+              }}
+            >
+              {cardDef.render({
+                dragHandleProps: {
+                  draggable: true,
+                  onDragStart: () => handleDragStart(cardId),
+                  onDragEnd: () => {
+                    setDraggedCardId(null);
+                    setDragOverCardId(null);
+                  }
+                }
+              })}
+            </div>
+          );
+        })}
       </div>
 
-      {/* TODAY'S LOGGED FOOD ENTRIES (IF ANY) */}
-      {todayFoods.length > 0 && (
-        <section style={{ marginTop: '28px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ fontSize: '13px', fontWeight: '800', color: '#8E8E93', letterSpacing: '1px', textTransform: 'uppercase' }}>
-              TODAY'S LOGGED FOODS ({todayFoods.length})
-            </h2>
-          </div>
+      {/* TODAY'S LOGGED FOOD ENTRIES */}
+      <section style={{ marginTop: '28px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '13px', fontWeight: '800', color: '#8E8E93', letterSpacing: '1px', textTransform: 'uppercase' }}>
+            TODAY&apos;S LOGGED FOODS ({todayFoods.length})
+          </h2>
+          <button
+            onClick={() => navigate('/log-food')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
+              color: '#10B981',
+              padding: '6px 14px',
+              borderRadius: '9999px',
+              fontSize: '12px',
+              fontWeight: '700',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(16, 185, 129, 0.25)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(16, 185, 129, 0.15)';
+            }}
+          >
+            <Plus size={14} /> Log Food
+          </button>
+        </div>
 
+        {todayFoods.length === 0 ? (
+          <div style={{
+            padding: '24px',
+            textAlign: 'center',
+            borderRadius: '16px',
+            background: 'rgba(255, 255, 255, 0.02)',
+            border: '1px dashed rgba(255, 255, 255, 0.08)',
+            color: '#71717A',
+            fontSize: '13px'
+          }}>
+            No meals logged today yet. Click &quot;+ Log Food&quot; to track your calories and macros.
+          </div>
+        ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {todayFoods.map((f, i) => (
               <div 
@@ -213,36 +343,8 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </section>
-      )}
-
-      {/* FLOATING ACTION MENU */}
-      {showMenu && (
-        <div 
-          className="animate-fade-in"
-          style={{ 
-            position: 'fixed', 
-            inset: 0, 
-            background: 'rgba(0, 0, 0, 0.28)', 
-            backdropFilter: 'blur(24px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-            zIndex: 40, 
-            animationDuration: '0.2s' 
-          }}
-          onClick={() => setShowMenu(false)}
-        >
-          <div style={{ position: 'absolute', bottom: 'max(140px, env(safe-area-inset-bottom) + 140px)', right: '24px', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '16px' }} onClick={e => e.stopPropagation()}>
-             <button className="btn-secondary animate-slide-up" onClick={() => { setShowMenu(false); navigate(isWorkoutInProgress ? '/log-workout' : '/workout-overview'); }} style={{ display: 'flex', gap: '12px', justifyContent: 'center', animationDuration: '0.2s', animationDelay: '0.05s', padding: '16px 24px', background: 'rgba(255, 255, 255, 0.08)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.16)', borderRadius: '16px', color: '#FFFFFF', boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.4)' }}>
-               <Dumbbell size={20} /> Log Workout
-             </button>
-             <button className="btn-primary animate-slide-up" onClick={() => { setShowMenu(false); navigate('/log-food'); }} style={{ display: 'flex', gap: '12px', justifyContent: 'center', animationDuration: '0.2s', animationDelay: '0.1s', padding: '16px 24px', background: '#FF7243', color: '#FFFFFF', border: 'none', borderRadius: '16px', boxShadow: 'none' }}>
-               <Utensils size={20} /> Log Food
-             </button>
-          </div>
-        </div>
-      )}
-
-      <FloatingAction isOpen={showMenu} onClick={() => setShowMenu(!showMenu)} />
+        )}
+      </section>
     </div>
   );
 }

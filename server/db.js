@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,14 +6,39 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dbPath = path.join(__dirname, 'anchor.db');
+const dbPath = process.env.DATABASE_PATH 
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.join(__dirname, 'anchor.db');
+
 export const db = new DatabaseSync(dbPath);
 
-// Enable WAL mode for high concurrency and performance, and enforce foreign keys
+// Enable WAL mode for high concurrency and performance, bounded autocheckpoints, and enforce foreign keys
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  PRAGMA wal_autocheckpoint = 1000;
 `);
+
+/**
+ * Executes a function inside an immediate SQLite transaction block.
+ */
+db.transaction = function(fn) {
+  return function(...args) {
+    db.exec('BEGIN IMMEDIATE;');
+    try {
+      const result = fn(...args);
+      db.exec('COMMIT;');
+      return result;
+    } catch (err) {
+      try {
+        db.exec('ROLLBACK;');
+      } catch {
+        // Ignored if already rolled back
+      }
+      throw err;
+    }
+  };
+};
 
 export function initDatabase() {
   db.exec(`
@@ -24,17 +50,17 @@ export function initDatabase() {
       name TEXT NOT NULL,
       role TEXT DEFAULT 'Athlete',
       avatar TEXT,
+      google_id TEXT,
+      token_version INTEGER DEFAULT 1,
       created_at INTEGER,
       updated_at INTEGER
     );
   `);
 
-  // Ensure updated_at column exists on pre-existing users tables
-  try {
-    db.exec(`ALTER TABLE users ADD COLUMN updated_at INTEGER;`);
-  } catch (e) {
-    // Already exists
-  }
+  // Ensure updated_at, google_id, and token_version columns exist on pre-existing users tables
+  try { db.exec(`ALTER TABLE users ADD COLUMN updated_at INTEGER;`); } catch (e) {}
+  try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT;`); } catch (e) {}
+  try { db.exec(`ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1;`); } catch (e) {}
 
   db.exec(`
 
@@ -159,14 +185,47 @@ export function initDatabase() {
       FOREIGN KEY(user_id) REFERENCES users(id)
     );
 
-    -- Indexes for lightning fast lookups
+    -- 11. Refresh Tokens for Secure Session Management & Revocation
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      user_agent TEXT,
+      ip_address TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    -- 12. Schema Version Tracking
+    CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
+
+    -- Indexes for lightning fast lookups and delta queries
     CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON workout_sessions(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_sessions_user_updated ON workout_sessions(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_nutrition_user_date ON nutrition_logs(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_nutrition_user_updated ON nutrition_logs(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_exercises_session ON workout_exercises(session_id);
     CREATE INDEX IF NOT EXISTS idx_sets_exercise ON workout_sets(exercise_id);
     CREATE INDEX IF NOT EXISTS idx_routines_user ON custom_routines(user_id);
+    CREATE INDEX IF NOT EXISTS idx_routines_user_updated ON custom_routines(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_bodyweight_user_updated ON bodyweight_logs(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_telemetry_user ON telemetry_streams(user_id);
+    CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_refresh_tokens_hash ON refresh_tokens(token_hash);
   `);
+
+  // Record initial schema version
+  try {
+    db.prepare(`
+      INSERT INTO schema_version (version, applied_at)
+      VALUES (1, ?)
+      ON CONFLICT(version) DO NOTHING
+    `).run(Date.now());
+  } catch (e) {}
 
   // Run automatic data migration from legacy user_data payloads to normalized tables
   migrateLegacyData();

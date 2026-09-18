@@ -4,9 +4,11 @@ import GithubIcon from '../components/GithubIcon';
 import { useNavigate } from 'react-router-dom';
 import SEOHead from '../components/SEOHead';
 import TopNavbar from '../components/TopNavbar';
+import { useStore } from '../store/useStore';
 
 export default function ThankYou() {
   const navigate = useNavigate();
+  const currentUser = useStore(state => state.currentUser);
 
   return (
     <>
@@ -98,7 +100,7 @@ export default function ThankYou() {
             marginBottom: '28px'
           }}>
             <button
-              onClick={() => navigate('/')}
+              onClick={() => navigate(currentUser ? '/dashboard' : '/')}
               style={{
                 backgroundColor: '#00D09C',
                 color: '#0D0D0D',

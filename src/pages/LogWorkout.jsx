@@ -47,6 +47,8 @@ export default function LogWorkout() {
   const [saveRoutineOpen, setSaveRoutineOpen] = useState(false);
   const [routineNameInput, setRoutineNameInput] = useState('');
   const [routineSavedSuccess, setRoutineSavedSuccess] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
+  const [autoRegToast, setAutoRegToast] = useState(null);
 
   useEffect(() => {
     if (restTime > 0) {
@@ -86,14 +88,61 @@ export default function LogWorkout() {
     updateActiveWorkout(newExs);
   };
 
+  const applyAutoregulation = (exIdx, setIdx, exertionRating) => {
+    const ex = activeWorkout.exercises[exIdx];
+    if (!ex) return;
+    const currentSet = ex.sets[setIdx];
+    if (!currentSet) return;
+
+    const prevSets = getPreviousPerformance(ex.name);
+    const baseline = getBaselineForExercise(ex.name);
+    const targetReps = Number(currentSet.plannedReps || (prevSets && prevSets[setIdx]?.reps) || ex.reps || baseline.reps || 8);
+    const actualReps = Number(currentSet.reps) || targetReps;
+    const currentWeight = Number(currentSet.weight) || (prevSets && prevSets[setIdx]?.weight) || baseline.weight || 20;
+
+    const adjustment = progressionService.getInWorkoutAutoregulation({
+      currentWeight,
+      targetReps,
+      actualReps,
+      exertion: exertionRating || currentSet.exertion
+    });
+
+    if (adjustment) {
+      const newExs = activeWorkout.exercises.map((e, i) => {
+        if (i !== exIdx) return e;
+        const newSets = e.sets.map((s, j) => {
+          if (j === setIdx) {
+            return { ...s, exertion: exertionRating };
+          }
+          if (j > setIdx && !s.completed) {
+            return { ...s, weight: adjustment.newWeight };
+          }
+          return s;
+        });
+        return { ...e, sets: newSets };
+      });
+
+      updateActiveWorkout(newExs);
+      setAutoRegToast({
+        action: adjustment.action,
+        message: adjustment.message
+      });
+      setTimeout(() => setAutoRegToast(null), 5000);
+    } else if (exertionRating) {
+      updateSet(exIdx, setIdx, 'exertion', exertionRating);
+    }
+  };
+
   const toggleComplete = (exIdx, setIdx) => {
     let nowCompleted = false;
+    let completedSetObj = null;
     const newExs = activeWorkout.exercises.map((ex, i) => {
       if (i !== exIdx) return ex;
       const newSets = ex.sets.map((s, j) => {
         if (j !== setIdx) return s;
         nowCompleted = !s.completed;
-        return { ...s, completed: nowCompleted };
+        completedSetObj = { ...s, completed: nowCompleted };
+        return completedSetObj;
       });
       return { ...ex, sets: newSets };
     });
@@ -104,22 +153,55 @@ export default function LogWorkout() {
         try { navigator.vibrate(25); } catch {}
       }
       setRestTime(defaultRest);
+
+      // Automated Objective Failure Detection: if actual reps missed target by >= 2
+      const ex = activeWorkout.exercises[exIdx];
+      if (ex && completedSetObj) {
+        const prevSets = getPreviousPerformance(ex.name);
+        const baseline = getBaselineForExercise(ex.name);
+        const targetReps = Number(completedSetObj.plannedReps || (prevSets && prevSets[setIdx]?.reps) || ex.reps || baseline.reps || 8);
+        const actualReps = Number(completedSetObj.reps) || targetReps;
+        
+        if (targetReps - actualReps >= 2) {
+          applyAutoregulation(exIdx, setIdx, 'failed');
+        }
+      }
     }
+  };
+
+  const getBaselineForExercise = (exerciseName) => {
+    if (!exerciseName) return { weight: 20, reps: 8 };
+    const lower = exerciseName.toLowerCase();
+    if (lower.includes('squat')) return { weight: 60, reps: 8 };
+    if (lower.includes('deadlift')) return { weight: 80, reps: 5 };
+    if (lower.includes('bench press')) return { weight: 60, reps: 8 };
+    if (lower.includes('overhead press') || lower.includes('shoulder press') || lower.includes('ohp')) return { weight: 40, reps: 8 };
+    if (lower.includes('barbell row') || lower.includes('bent over row')) return { weight: 50, reps: 8 };
+    if (lower.includes('incline dumbbell') || lower.includes('dumbbell bench') || lower.includes('dumbbell press')) return { weight: 20, reps: 10 };
+    if (lower.includes('pull-up') || lower.includes('pull up') || lower.includes('chin-up') || lower.includes('dip')) return { weight: 0, reps: 8 };
+    if (lower.includes('curl')) return { weight: 14, reps: 10 };
+    if (lower.includes('pushdown') || lower.includes('extension')) return { weight: 20, reps: 12 };
+    if (lower.includes('lateral raise') || lower.includes('fly')) return { weight: 10, reps: 12 };
+    if (lower.includes('leg press')) return { weight: 100, reps: 10 };
+    if (lower.includes('lunge')) return { weight: 16, reps: 10 };
+    return { weight: 20, reps: 8 };
   };
 
   const handleAutoFillTargets = () => {
     const newExs = activeWorkout.exercises.map(ex => {
       const prevSets = getPreviousPerformance(ex.name);
       const suggestion = progressionService.getOverloadSuggestion(prevSets);
-      const fallbackWeight = (prevSets && prevSets[0]?.weight) || ex.weight || '';
-      const fallbackReps = (prevSets && prevSets[0]?.reps) || ex.reps || 8;
+      const baseline = getBaselineForExercise(ex.name);
+
+      const fallbackWeight = (prevSets && prevSets[0]?.weight) || (ex.weight ? ex.weight : baseline.weight);
+      const fallbackReps = (prevSets && prevSets[0]?.reps) || (ex.reps ? ex.reps : baseline.reps);
 
       const updatedSets = ex.sets.map((s, idx) => {
         const prevSet = prevSets && prevSets[idx];
         let calculatedWeight = s.weight;
-        if (!calculatedWeight) {
-          if (prevSet?.weight) {
-            calculatedWeight = suggestion?.type === 'increase' ? Number(prevSet.weight) + 5 : prevSet.weight;
+        if (!calculatedWeight && calculatedWeight !== 0) {
+          if (prevSet?.weight !== undefined && prevSet?.weight !== '') {
+            calculatedWeight = suggestion?.type === 'increase' ? Number(prevSet.weight) + 2.5 : prevSet.weight;
           } else {
             calculatedWeight = fallbackWeight;
           }
@@ -127,8 +209,9 @@ export default function LogWorkout() {
 
         return {
           ...s,
-          weight: calculatedWeight,
-          reps: s.reps || (prevSet?.reps ? prevSet.reps : fallbackReps)
+          weight: (calculatedWeight !== undefined && calculatedWeight !== '') ? calculatedWeight : fallbackWeight,
+          reps: s.reps || (prevSet?.reps ? prevSet.reps : fallbackReps),
+          completed: true
         };
       });
 
@@ -136,12 +219,13 @@ export default function LogWorkout() {
     });
 
     updateActiveWorkout(newExs);
-    audioService.playTick();
+    setRestTime(0);
+    audioService.playCompletion();
   };
 
   const handleOpenPlates = (exIdx, setIdx, currentWeight) => {
     setActiveSetTarget({ exIdx, setIdx });
-    setPlateModalWeight(Number(currentWeight) || 135);
+    setPlateModalWeight(Number(currentWeight) || 60);
     setPlateModalOpen(true);
   };
 
@@ -181,6 +265,42 @@ export default function LogWorkout() {
       {/* Top Navbar */}
       <TopNavbar />
 
+      {/* Auto-Regulation In-Workout Notification */}
+      {autoRegToast && (
+        <div style={{
+          background: autoRegToast.action === 'boost' ? 'rgba(0, 208, 156, 0.95)' : 'rgba(255, 114, 67, 0.95)',
+          color: '#0D0D0D',
+          padding: '12px 20px',
+          borderRadius: '16px',
+          fontWeight: '700',
+          fontSize: '13px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          marginBottom: '18px',
+          boxShadow: '0 8px 30px rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(12px)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{autoRegToast.message}</span>
+          </div>
+          <button
+            onClick={() => setAutoRegToast(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#0D0D0D',
+              fontWeight: '800',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* WORKOUT HEADER BAR */}
       <div 
         className="glass-card"
@@ -201,7 +321,7 @@ export default function LogWorkout() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <button 
-            onClick={() => navigate('/')} 
+            onClick={() => navigate('/dashboard')} 
             title="Return to Dashboard"
             aria-label="Return to Dashboard"
             style={{ 
@@ -257,9 +377,9 @@ export default function LogWorkout() {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: 'rgba(255, 255, 255, 0.06)',
-              border: '1px solid rgba(255, 255, 255, 0.12)',
-              color: '#FFFFFF',
+              background: (templateSaved || routineSavedSuccess) ? 'rgba(0, 208, 156, 0.15)' : 'rgba(255, 255, 255, 0.06)',
+              border: (templateSaved || routineSavedSuccess) ? '1px solid rgba(0, 208, 156, 0.4)' : '1px solid rgba(255, 255, 255, 0.12)',
+              color: (templateSaved || routineSavedSuccess) ? '#00D09C' : '#FFFFFF',
               padding: '8px 14px',
               borderRadius: '9999px',
               fontSize: '12px',
@@ -268,8 +388,12 @@ export default function LogWorkout() {
               transition: 'all 0.2s ease'
             }}
           >
-            <Bookmark size={13} color="#00D09C" />
-            <span>SAVE TEMPLATE</span>
+            <Bookmark 
+              size={13} 
+              color="#00D09C" 
+              fill={(templateSaved || routineSavedSuccess) ? "#00D09C" : "none"} 
+            />
+            <span>{(templateSaved || routineSavedSuccess) ? 'TEMPLATE SAVED ✓' : 'SAVE TEMPLATE'}</span>
           </button>
 
           {/* Auto-Fill Target Overload Button */}
@@ -351,7 +475,7 @@ export default function LogWorkout() {
                       borderRadius: '8px',
                       border: '1px solid rgba(255, 255, 255, 0.06)'
                     }}>
-                      Previous: {prevSets.map(s => `${s.weight || 0} lbs × ${s.reps || 0}`).join(' · ')}
+                      Previous: {prevSets.map(s => `${s.weight || 0} kg × ${s.reps || 0}`).join(' · ')}
                     </div>
                   ) : (
                     <div style={{ fontSize: '11px', color: '#8E8E93', fontWeight: '500' }}>
@@ -417,7 +541,7 @@ export default function LogWorkout() {
                   borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
                 }}>
                   <div style={{ textAlign: 'center' }}>SET</div>
-                  <div style={{ textAlign: 'center' }}>WEIGHT (LBS)</div>
+                  <div style={{ textAlign: 'center' }}>WEIGHT (KG)</div>
                   <div style={{ textAlign: 'center' }}>REPS</div>
                   <div style={{ textAlign: 'center' }}>DONE</div>
                   <div></div>
@@ -431,149 +555,211 @@ export default function LogWorkout() {
                       <div 
                         key={setIdx}
                         style={{
-                          display: 'grid',
-                          gridTemplateColumns: '40px 1fr 1fr 44px 28px',
-                          gap: '8px',
-                          alignItems: 'center',
+                          display: 'flex',
+                          flexDirection: 'column',
                           background: s.completed 
-                            ? 'rgba(0, 208, 156, 0.05)' 
+                            ? 'rgba(0, 208, 156, 0.04)' 
                             : isActive 
                               ? 'rgba(255, 114, 67, 0.07)' 
                               : 'rgba(255, 255, 255, 0.03)',
-                          borderRadius: '12px',
-                          padding: '6px 10px',
+                          borderRadius: '14px',
                           border: isActive 
                             ? '1px solid rgba(255, 114, 67, 0.5)' 
                             : s.completed 
-                              ? '1px solid rgba(0, 208, 156, 0.25)' 
+                              ? '1px solid rgba(0, 208, 156, 0.22)' 
                               : '1px solid rgba(255, 255, 255, 0.06)',
-                          transition: 'all 0.2s ease'
+                          transition: 'all 0.2s ease',
+                          overflow: 'hidden'
                         }}
                       >
-                        {/* Set Number Pill */}
-                        <div style={{ textAlign: 'center' }}>
-                          <span style={{
-                            fontSize: '12px',
-                            fontWeight: '800',
-                            color: isActive ? '#FF7243' : s.completed ? '#00D09C' : '#8E8E93'
-                          }}>
-                            {setIdx + 1}
-                          </span>
-                        </div>
+                        {/* 5-Column Set Inputs Row */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '40px 1fr 1fr 44px 28px',
+                            gap: '8px',
+                            alignItems: 'center',
+                            padding: '6px 10px'
+                          }}
+                        >
+                          {/* Set Number Pill */}
+                          <div style={{ textAlign: 'center' }}>
+                            <span style={{
+                              fontSize: '12px',
+                              fontWeight: '800',
+                              color: isActive ? '#FF7243' : s.completed ? '#00D09C' : '#8E8E93'
+                            }}>
+                              {setIdx + 1}
+                            </span>
+                          </div>
 
-                        {/* Weight Input + Plate Calculator Trigger */}
-                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                          <input
-                            type="number"
-                            inputMode="decimal"
-                            placeholder="-"
-                            value={s.weight}
-                            onChange={e => updateSet(exIdx, setIdx, 'weight', e.target.value)}
-                            onFocus={e => e.target.select()}
-                            disabled={s.completed}
-                            style={{
-                              width: '100%',
-                              background: 'transparent',
-                              border: 'none',
-                              textAlign: 'center',
-                              fontSize: '17px',
-                              fontWeight: '700',
-                              color: '#FFFFFF'
-                            }}
-                          />
-                          {!s.completed && (
-                            <button
-                              onClick={() => handleOpenPlates(exIdx, setIdx, s.weight)}
-                              title="Plate Calculator"
-                              aria-label="Open plate calculator"
+                          {/* Weight Input + Plate Calculator Trigger */}
+                          <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              placeholder="-"
+                              value={s.weight}
+                              onChange={e => updateSet(exIdx, setIdx, 'weight', e.target.value)}
+                              onFocus={e => e.target.select()}
+                              disabled={s.completed}
                               style={{
-                                position: 'absolute',
-                                right: '4px',
-                                opacity: 0.45,
-                                color: '#FFFFFF',
-                                padding: '4px',
-                                cursor: 'pointer',
-                                background: 'transparent',
-                                border: 'none'
-                              }}
-                            >
-                              <Disc3 size={15} />
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Reps Input */}
-                        <div>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            placeholder="-"
-                            value={s.reps}
-                            onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
-                            onFocus={e => e.target.select()}
-                            disabled={s.completed}
-                            style={{
-                              width: '100%',
-                              background: 'transparent',
-                              border: 'none',
-                              textAlign: 'center',
-                              fontSize: '17px',
-                              fontWeight: '700',
-                              color: '#FFFFFF'
-                            }}
-                          />
-                        </div>
-
-                        {/* Check Button */}
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          <button
-                            className={s.completed ? 'animate-pop' : ''}
-                            onClick={() => toggleComplete(exIdx, setIdx)}
-                            aria-label={`Toggle set ${setIdx + 1}`}
-                            style={{
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '10px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              background: s.completed ? '#00D09C' : isActive ? 'rgba(255, 114, 67, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                              color: s.completed ? '#0D0D0D' : isActive ? '#FF7243' : '#8E8E93',
-                              border: s.completed ? 'none' : isActive ? '1px solid #FF7243' : '1px solid rgba(255, 255, 255, 0.08)',
-                              boxShadow: 'none',
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease'
-                            }}
-                          >
-                            {s.completed && <Check size={18} strokeWidth={3.2} />}
-                          </button>
-                        </div>
-
-                        {/* Delete Set Button */}
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          {ex.sets.length > 1 ? (
-                            <button
-                              onClick={() => removeSetFromActiveWorkoutExercise(exIdx, setIdx)}
-                              title="Delete set"
-                              aria-label={`Delete set ${setIdx + 1}`}
-                              style={{
+                                width: '100%',
                                 background: 'transparent',
                                 border: 'none',
-                                color: '#666666',
-                                cursor: 'pointer',
-                                padding: '4px',
+                                textAlign: 'center',
+                                fontSize: '17px',
+                                fontWeight: '700',
+                                color: '#FFFFFF'
+                              }}
+                            />
+                            {!s.completed && (
+                              <button
+                                onClick={() => handleOpenPlates(exIdx, setIdx, s.weight)}
+                                title="Plate Calculator"
+                                aria-label="Open plate calculator"
+                                style={{
+                                  position: 'absolute',
+                                  right: '4px',
+                                  opacity: 0.45,
+                                  color: '#FFFFFF',
+                                  padding: '4px',
+                                  cursor: 'pointer',
+                                  background: 'transparent',
+                                  border: 'none'
+                                }}
+                              >
+                                <Disc3 size={15} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Reps Input */}
+                          <div>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              placeholder="-"
+                              value={s.reps}
+                              onChange={e => updateSet(exIdx, setIdx, 'reps', e.target.value)}
+                              onFocus={e => e.target.select()}
+                              disabled={s.completed}
+                              style={{
+                                width: '100%',
+                                background: 'transparent',
+                                border: 'none',
+                                textAlign: 'center',
+                                fontSize: '17px',
+                                fontWeight: '700',
+                                color: '#FFFFFF'
+                              }}
+                            />
+                          </div>
+
+                          {/* Check Button */}
+                          <div style={{ display: 'flex', justifyContent: 'center' }}>
+                            <button
+                              className={s.completed ? 'animate-pop' : ''}
+                              onClick={() => toggleComplete(exIdx, setIdx)}
+                              aria-label={`Toggle set ${setIdx + 1}`}
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '10px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                transition: 'color 0.15s ease'
+                                background: s.completed ? '#00D09C' : isActive ? 'rgba(255, 114, 67, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                color: s.completed ? '#0D0D0D' : isActive ? '#FF7243' : '#8E8E93',
+                                border: s.completed ? 'none' : isActive ? '1px solid #FF7243' : '1px solid rgba(255, 255, 255, 0.08)',
+                                boxShadow: 'none',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s ease'
                               }}
-                              onMouseEnter={e => e.currentTarget.style.color = '#FF7243'}
-                              onMouseLeave={e => e.currentTarget.style.color = '#666666'}
                             >
-                              <Trash2 size={13} />
+                              {s.completed && <Check size={18} strokeWidth={3.2} />}
                             </button>
-                          ) : null}
+                          </div>
+
+                          {/* Delete Set Button */}
+                          <div style={{ display: 'flex', justifyContent: 'center' }}>
+                            {ex.sets.length > 1 ? (
+                              <button
+                                onClick={() => removeSetFromActiveWorkoutExercise(exIdx, setIdx)}
+                                title="Delete set"
+                                aria-label={`Delete set ${setIdx + 1}`}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: '#666666',
+                                  cursor: 'pointer',
+                                  padding: '4px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'color 0.15s ease'
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.color = '#FF7243'}
+                                onMouseLeave={e => e.currentTarget.style.color = '#666666'}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
+
+                        {/* Full-Width Linear Exertion Rating Bar */}
+                        {s.completed && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '6px 14px 8px 14px',
+                            background: 'rgba(0, 0, 0, 0.25)',
+                            borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+                            flexWrap: 'wrap',
+                            gap: '8px'
+                          }}>
+                            <span style={{ color: '#8E8E93', fontSize: '11px', fontWeight: '700', letterSpacing: '0.4px', textTransform: 'uppercase' }}>
+                              Exertion:
+                            </span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap', overflowX: 'auto' }}>
+                              {[
+                                { key: 'easy', label: '🟢 Easy (+2.5kg)', activeColor: '#00D09C', desc: 'Auto-boost' },
+                                { key: 'target', label: '🎯 Good', activeColor: '#FFFFFF', desc: 'On target' },
+                                { key: 'hard', label: '🔴 Hard', activeColor: '#FF9066', desc: 'Near failure' },
+                                { key: 'failed', label: '⚠️ Failed (-2.5kg)', activeColor: '#FF7243', desc: 'Auto-deload' }
+                              ].map(item => {
+                                const isSelectedExertion = s.exertion === item.key;
+                                return (
+                                  <button
+                                    key={item.key}
+                                    type="button"
+                                    onClick={() => applyAutoregulation(exIdx, setIdx, item.key)}
+                                    title={item.desc}
+                                    style={{
+                                      background: isSelectedExertion ? 'rgba(255, 255, 255, 0.16)' : 'rgba(255, 255, 255, 0.04)',
+                                      border: isSelectedExertion ? `1.5px solid ${item.activeColor}` : '1px solid rgba(255, 255, 255, 0.08)',
+                                      borderRadius: '9999px',
+                                      padding: '3px 10px',
+                                      color: isSelectedExertion ? item.activeColor : '#A0A0A0',
+                                      fontSize: '11px',
+                                      fontWeight: isSelectedExertion ? '800' : '600',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease',
+                                      whiteSpace: 'nowrap',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px'
+                                    }}
+                                  >
+                                    {item.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -644,74 +830,127 @@ export default function LogWorkout() {
         </button>
       </div>
 
-      {/* FLOATING ACTIVE REST TIMER HUD */}
+      {/* CENTERED ACTIVE REST TIMER WITH FULLSCREEN HEAVY BLUR OVERLAY */}
       {restTime > 0 && (
         <div 
-          className="glass-card animate-slide-up"
+          className="animate-fade-in"
           style={{
             position: 'fixed',
-            bottom: '90px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 35,
-            width: 'calc(100% - 32px)',
-            maxWidth: '520px',
-            background: 'var(--glass-bg)',
-            backdropFilter: 'var(--glass-backdrop)',
-            WebkitBackdropFilter: 'var(--glass-backdrop)',
-            border: '1px solid rgba(255, 114, 67, 0.4)',
-            borderRadius: '20px',
-            padding: '14px 20px',
+            inset: 0,
+            zIndex: 9999,
+            background: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(36px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(36px) saturate(180%)',
             display: 'flex',
-            justifyContent: 'space-between',
             alignItems: 'center',
-            boxShadow: 'var(--glass-shadow)'
+            justifyContent: 'center',
+            padding: '24px'
           }}
+          onClick={() => setRestTime(0)}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div 
+            className="animate-scale-in"
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(18, 22, 30, 0.88)',
+              backdropFilter: 'blur(40px) saturate(200%)',
+              WebkitBackdropFilter: 'blur(40px) saturate(200%)',
+              borderRadius: '28px',
+              border: '1px solid rgba(255, 114, 67, 0.4)',
+              borderTop: '1.5px solid rgba(255, 140, 95, 0.6)',
+              width: '100%',
+              maxWidth: '400px',
+              padding: '36px 28px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              boxShadow: '0 30px 80px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255, 114, 67, 0.15)'
+            }}
+          >
+            {/* Top Indicator */}
             <div style={{
-              width: '10px',
-              height: '10px',
-              borderRadius: '50%',
-              backgroundColor: '#FF7243',
-              boxShadow: '0 0 10px #FF7243'
-            }} />
-            <div>
-              <div style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>RESTING</div>
-              <div style={{ fontSize: '20px', fontWeight: '900', color: '#FFFFFF', fontVariantNumeric: 'tabular-nums' }}>
-                {formatTime(restTime)}
-              </div>
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              background: 'rgba(255, 114, 67, 0.15)',
+              border: '1px solid rgba(255, 114, 67, 0.3)',
+              padding: '6px 14px',
+              borderRadius: '9999px',
+              marginBottom: '20px'
+            }}>
+              <div style={{
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: '#FF7243',
+                boxShadow: '0 0 8px #FF7243'
+              }} />
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#FF7243', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+                Resting Recovery Interval
+              </span>
             </div>
-          </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => setRestTime(prev => prev + 30)}
-              style={{
-                fontSize: '11px',
-                fontWeight: '700',
-                background: 'rgba(255, 255, 255, 0.08)',
-                color: '#FFFFFF',
-                padding: '8px 14px',
-                borderRadius: '9999px'
-              }}
-            >
-              +30s
-            </button>
-            <button
-              onClick={() => setRestTime(0)}
-              style={{
-                fontSize: '11px',
-                fontWeight: '700',
-                background: '#FF7243',
-                color: '#FFFFFF',
-                padding: '8px 16px',
-                borderRadius: '9999px',
-                boxShadow: '0 2px 8px rgba(255, 114, 67, 0.35)'
-              }}
-            >
-              Skip
-            </button>
+            {/* Giant Countdown Clock */}
+            <div style={{
+              fontSize: '64px',
+              fontWeight: '900',
+              color: '#FFFFFF',
+              fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '-1px',
+              lineHeight: '1',
+              marginBottom: '10px',
+              fontFamily: "'Space Grotesk', sans-serif"
+            }}>
+              {formatTime(restTime)}
+            </div>
+
+            <p style={{ fontSize: '13px', color: '#8E8E93', marginBottom: '28px' }}>
+              Breathe and reset before your next set.
+            </p>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+              <button
+                onClick={() => setRestTime(prev => prev + 30)}
+                style={{
+                  flex: 1,
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#FFFFFF',
+                  padding: '12px 18px',
+                  borderRadius: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+              >
+                +30s Add Time
+              </button>
+              <button
+                onClick={() => setRestTime(0)}
+                style={{
+                  flex: 1.3,
+                  fontSize: '13px',
+                  fontWeight: '800',
+                  background: '#FF7243',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '12px 20px',
+                  borderRadius: '16px',
+                  cursor: 'pointer',
+                  boxShadow: 'none',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={e => e.currentTarget.style.opacity = '0.92'}
+                onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+              >
+                Skip / Ready Now
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -984,7 +1223,7 @@ export default function LogWorkout() {
 
               <div>
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Weight (lbs)
+                  Weight (kg)
                 </label>
                 <input
                   type="number"
@@ -1185,6 +1424,7 @@ export default function LogWorkout() {
                   if (!routineNameInput.trim()) return;
                   saveWorkoutAsRoutine(routineNameInput.trim(), activeWorkout.exercises, `Saved from session on ${new Date().toLocaleDateString()}`);
                   setSaveRoutineOpen(false);
+                  setTemplateSaved(true);
                   setRoutineSavedSuccess(true);
                   setTimeout(() => setRoutineSavedSuccess(false), 4000);
                 }}

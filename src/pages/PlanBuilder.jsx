@@ -197,7 +197,7 @@ export default function PlanBuilder() {
               <span>Session Launcher</span>
             </button>
             <button 
-              onClick={() => navigate('/')} 
+              onClick={() => navigate('/dashboard')} 
               style={{ 
                 width: '38px', 
                 height: '38px', 
@@ -823,7 +823,7 @@ export default function PlanBuilder() {
               <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
                 <input
                   type="number"
-                  placeholder="e.g. 72 kg / 160 lbs"
+                  placeholder="e.g. 75 kg"
                   value={weight}
                   onChange={e => setWeight(e.target.value)}
                   style={{
