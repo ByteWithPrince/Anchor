@@ -5,6 +5,8 @@ import { authService } from '../services/authService';
 import { syncEngine } from '../services/syncEngine';
 import { WORKOUT_PRESETS } from '../data/workoutPresets';
 
+export const roundMacro = (val) => Math.round((Number(val) || 0) * 10) / 10;
+
 export const getTodayStr = (offsetDays = 0) => {
   const d = new Date();
   if (offsetDays) d.setDate(d.getDate() + offsetDays);
@@ -545,6 +547,75 @@ export const useStore = create(
         }
       },
 
+      exportData: () => {
+        const state = get();
+        const archive = {
+          app: 'ANCHOR_OS',
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          data: {
+            workouts: state.workoutLogs || [],
+            nutritionLogs: state.foodLogs || [],
+            trainingPlan: state.plan || {},
+            customRoutines: state.customRoutines || [],
+            bodyweightLogs: state.weightLogs || [],
+            gpsTelemetry: state.cardioLogs || []
+          }
+        };
+        return JSON.stringify(archive, null, 2);
+      },
+
+      hydrateFromArchive: (archiveData) => {
+        if (!archiveData || typeof archiveData !== 'object') {
+          throw new Error('Invalid archive payload: expected an object.');
+        }
+
+        const state = get();
+        const workouts = Array.isArray(archiveData.workouts)
+          ? archiveData.workouts
+          : (Array.isArray(archiveData.workoutLogs) ? archiveData.workoutLogs : state.workoutLogs);
+
+        const nutrition = Array.isArray(archiveData.nutritionLogs)
+          ? archiveData.nutritionLogs
+          : (Array.isArray(archiveData.foodLogs) ? archiveData.foodLogs : state.foodLogs);
+
+        const trainingPlan = (archiveData.trainingPlan && typeof archiveData.trainingPlan === 'object')
+          ? archiveData.trainingPlan
+          : (archiveData.plan && typeof archiveData.plan === 'object' ? archiveData.plan : state.plan);
+
+        const routines = Array.isArray(archiveData.customRoutines)
+          ? archiveData.customRoutines
+          : state.customRoutines;
+
+        const bodyweight = Array.isArray(archiveData.bodyweightLogs)
+          ? archiveData.bodyweightLogs
+          : (Array.isArray(archiveData.weightLogs) ? archiveData.weightLogs : state.weightLogs);
+
+        const gps = Array.isArray(archiveData.gpsTelemetry)
+          ? archiveData.gpsTelemetry
+          : (Array.isArray(archiveData.cardioLogs) ? archiveData.cardioLogs : state.cardioLogs);
+
+        set({
+          workoutLogs: workouts,
+          foodLogs: nutrition,
+          plan: trainingPlan,
+          customRoutines: routines,
+          weightLogs: bodyweight,
+          cardioLogs: gps,
+          lastSyncTime: Date.now()
+        });
+
+        // Persist snapshot to current profile
+        state.persistCurrentUserData();
+
+        // Queue cloud sync if authenticated and not guest
+        if (state.authToken && state.currentUser && !state.currentUser.isGuest) {
+          syncEngine.scheduleFlush(1000);
+        }
+
+        return true;
+      },
+
       getActiveProfile: () => {
         const state = get();
         return state.profiles.find(p => p.id === state.activeProfileId) || state.profiles[0];
@@ -624,6 +695,21 @@ export const useStore = create(
             plan: state.plan
           }
         }, null, 2);
+      },
+
+      hydrateFromArchive: (archiveData) => {
+        if (!archiveData || typeof archiveData !== 'object') return false;
+        const state = get();
+        set({
+          workoutLogs: Array.isArray(archiveData.workouts) ? archiveData.workouts : state.workoutLogs,
+          foodLogs: Array.isArray(archiveData.nutritionLogs) ? archiveData.nutritionLogs : state.foodLogs,
+          plan: archiveData.trainingPlan || state.plan,
+          customRoutines: Array.isArray(archiveData.customRoutines) ? archiveData.customRoutines : state.customRoutines,
+          weightLogs: Array.isArray(archiveData.bodyweightLogs) ? archiveData.bodyweightLogs : state.weightLogs,
+          cardioLogs: Array.isArray(archiveData.gpsTelemetry) ? archiveData.gpsTelemetry : state.cardioLogs
+        });
+        get().persistCurrentUserData();
+        return true;
       },
       
       completeSetup: () => set({ isSetupComplete: true }),
@@ -916,6 +1002,10 @@ export const useStore = create(
           id: crypto.randomUUID(),
           date: getTodayStr(),
           ...foodData,
+          calories: roundMacro(foodData.calories),
+          protein: roundMacro(foodData.protein),
+          carbs: roundMacro(foodData.carbs),
+          fat: roundMacro(foodData.fat),
           timestamp: Date.now(),
           updatedAt: Date.now()
         };
@@ -930,20 +1020,26 @@ export const useStore = create(
       },
       
       addWeightLog: (weight, date = getTodayStr()) => {
-        set((state) => {
-          const exists = state.weightLogs.find(w => w.date === date);
-          if (exists) {
-            return { weightLogs: state.weightLogs.map(w => w.date === date ? { ...w, weight } : w) };
-          }
-          return {
-            weightLogs: [
-              ...state.weightLogs,
-              { id: crypto.randomUUID(), date, weight, timestamp: Date.now() }
-            ]
-          };
+        const state = get();
+        const num = Number(weight);
+        if (!num || isNaN(num)) return;
+        const newLog = {
+          id: `wt_${Date.now()}`,
+          weight: num,
+          date,
+          timestamp: Date.now()
+        };
+        const activeProf = state.getActiveProfile();
+        const updatedProfiles = (state.profiles || []).map(p => 
+          p.id === activeProf?.id ? { ...p, weight: num } : p
+        );
+        const existingLogs = (state.weightLogs || []).filter(w => w.date !== date);
+        set({
+          weightLogs: [...existingLogs, newLog],
+          profiles: updatedProfiles
         });
         get().persistCurrentUserData();
-        syncEngine.queueMutation('bodyweight', { date, weight: Number(weight), updatedAt: Date.now() });
+        syncEngine.queueMutation('bodyweight', { date, weight: num, updatedAt: Date.now() });
       },
       
       deleteFoodLog: (id) => {
@@ -1004,26 +1100,7 @@ export const useStore = create(
         get().persistCurrentUserData();
       },
 
-      addWeightLog: (weight, date = getTodayStr()) => {
-        const state = get();
-        const num = Number(weight);
-        if (!num || isNaN(num)) return;
-        const newLog = {
-          id: `wt_${Date.now()}`,
-          weight: num,
-          date,
-          timestamp: Date.now()
-        };
-        const activeProf = state.getActiveProfile();
-        const updatedProfiles = (state.profiles || []).map(p => 
-          p.id === activeProf?.id ? { ...p, weight: num } : p
-        );
-        set({
-          weightLogs: [...(state.weightLogs || []).filter(w => w.date !== date), newLog],
-          profiles: updatedProfiles
-        });
-        get().persistCurrentUserData();
-      },
+
 
       updateWeightGoals: (currentWeight, targetWeight) => {
         const state = get();
@@ -1298,6 +1375,15 @@ export const useStore = create(
       },
 
       getTodayFoodLogs: () => get().foodLogs.filter(log => log.date === getTodayStr()),
+      getTodayMacroTotals: () => {
+        const todayFoods = get().foodLogs.filter(log => log.date === getTodayStr());
+        return todayFoods.reduce((acc, item) => ({
+          calories: roundMacro((acc.calories || 0) + (Number(item.calories) || 0)),
+          protein: roundMacro((acc.protein || 0) + (Number(item.protein) || 0)),
+          carbs: roundMacro((acc.carbs || 0) + (Number(item.carbs) || 0)),
+          fat: roundMacro((acc.fat || 0) + (Number(item.fat) || 0)),
+        }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+      },
       getTodayWorkoutSession: () => {
         const todayLogs = get().workoutLogs.filter(log => log.date === getTodayStr());
         return todayLogs.length > 0 ? todayLogs[todayLogs.length - 1] : null;

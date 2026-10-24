@@ -5,6 +5,7 @@ import { useStore } from '../store/useStore';
 import { ArrowLeft, Check, Zap, Disc3, Trophy, Plus, Trash2, Bookmark, Search, X, Dumbbell } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
 import { audioService } from '../services/audioService';
+import { haptics } from '../services/haptics';
 import { progressionService } from '../services/progressionService';
 import PlateCalculatorModal from '../components/PlateCalculatorModal';
 import SEOHead from '../components/SEOHead';
@@ -56,9 +57,7 @@ export default function LogWorkout() {
         setRestTime(prev => {
           if (prev <= 1) {
             audioService.playRestChime();
-            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-              try { navigator.vibrate([100, 50, 100]); } catch {}
-            }
+            haptics.timerComplete();
             return 0;
           }
           return prev - 1;
@@ -138,10 +137,41 @@ export default function LogWorkout() {
     let completedSetObj = null;
     const newExs = activeWorkout.exercises.map((ex, i) => {
       if (i !== exIdx) return ex;
+      const prevSets = getPreviousPerformance(ex.name);
+      const baseline = getBaselineForExercise(ex.name);
       const newSets = ex.sets.map((s, j) => {
         if (j !== setIdx) return s;
         nowCompleted = !s.completed;
-        completedSetObj = { ...s, completed: nowCompleted };
+
+        let setWeight = s.weight;
+        let setReps = s.reps;
+
+        if (nowCompleted) {
+          const isWeightEmpty = (setWeight === '' || setWeight === undefined || setWeight === null || Number(setWeight) === 0);
+          if (isWeightEmpty) {
+            const currentSessionPrevWeight = j > 0 ? ex.sets[j - 1]?.weight : null;
+            const prevWeight = (currentSessionPrevWeight && Number(currentSessionPrevWeight) > 0)
+              ? currentSessionPrevWeight
+              : (prevSets?.[j]?.weight || prevSets?.[0]?.weight);
+            const templateWeight = ex.weight;
+            const fallbackWeight = baseline?.weight !== undefined && Number(baseline.weight) > 0 ? baseline.weight : 20;
+
+            if (prevWeight !== undefined && prevWeight !== '' && Number(prevWeight) > 0) {
+              setWeight = prevWeight;
+            } else if (templateWeight !== undefined && templateWeight !== '' && Number(templateWeight) > 0) {
+              setWeight = templateWeight;
+            } else {
+              setWeight = fallbackWeight;
+            }
+          }
+
+          if (setReps === '' || setReps === undefined || setReps === null) {
+            const prevReps = prevSets?.[j]?.reps || prevSets?.[0]?.reps;
+            setReps = s.plannedReps || prevReps || ex.reps || baseline?.reps || 8;
+          }
+        }
+
+        completedSetObj = { ...s, weight: setWeight, reps: setReps, completed: nowCompleted };
         return completedSetObj;
       });
       return { ...ex, sets: newSets };
@@ -149,9 +179,7 @@ export default function LogWorkout() {
     updateActiveWorkout(newExs);
     
     if (nowCompleted) {
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        try { navigator.vibrate(25); } catch {}
-      }
+      haptics.setComplete();
       setRestTime(defaultRest);
 
       // Automated Objective Failure Detection: if actual reps missed target by >= 2
@@ -239,11 +267,55 @@ export default function LogWorkout() {
     // If no sets were individually toggled yet, auto-mark planned sets as completed on finish
     const anyCompleted = activeWorkout.exercises.some(ex => ex.sets?.some(s => s.completed));
     if (!anyCompleted && activeWorkout.exercises.length > 0) {
-      const allDone = activeWorkout.exercises.map(ex => ({
-        ...ex,
-        sets: ex.sets.map(s => ({ ...s, completed: true }))
-      }));
+      const allDone = activeWorkout.exercises.map(ex => {
+        const prevSets = getPreviousPerformance(ex.name);
+        const baseline = getBaselineForExercise(ex.name);
+        return {
+          ...ex,
+          sets: ex.sets.map((s, j) => {
+            const isWeightEmpty = (s.weight === '' || s.weight === undefined || s.weight === null || Number(s.weight) === 0);
+            const currentSessionPrevWeight = j > 0 ? ex.sets[j - 1]?.weight : null;
+            const prevWeight = (currentSessionPrevWeight && Number(currentSessionPrevWeight) > 0)
+              ? currentSessionPrevWeight
+              : (prevSets?.[j]?.weight || prevSets?.[0]?.weight);
+            const templateWeight = ex.weight;
+            const fallbackWeight = baseline?.weight !== undefined && Number(baseline.weight) > 0 ? baseline.weight : 20;
+            const weight = !isWeightEmpty ? s.weight : ((prevWeight && Number(prevWeight) > 0) ? prevWeight : ((templateWeight && Number(templateWeight) > 0) ? templateWeight : fallbackWeight));
+            const reps = (s.reps !== '' && s.reps !== undefined && s.reps !== null)
+              ? s.reps
+              : (s.plannedReps || prevSets?.[j]?.reps || ex.reps || baseline?.reps || 8);
+            return { ...s, weight, reps, completed: true };
+          })
+        };
+      });
       updateActiveWorkout(allDone);
+    } else {
+      // Auto-sanitize any completed set with empty/0 weight so volume moved is never accidentally 0 kg
+      const sanitized = activeWorkout.exercises.map(ex => {
+        const prevSets = getPreviousPerformance(ex.name);
+        const baseline = getBaselineForExercise(ex.name);
+        return {
+          ...ex,
+          sets: ex.sets.map((s, j) => {
+            if (!s.completed) return s;
+            const isWeightEmpty = (s.weight === '' || s.weight === undefined || s.weight === null || Number(s.weight) === 0);
+            if (isWeightEmpty) {
+              const currentSessionPrevWeight = j > 0 ? ex.sets[j - 1]?.weight : null;
+              const prevWeight = (currentSessionPrevWeight && Number(currentSessionPrevWeight) > 0)
+                ? currentSessionPrevWeight
+                : (prevSets?.[j]?.weight || prevSets?.[0]?.weight);
+              const templateWeight = ex.weight;
+              const fallbackWeight = baseline?.weight !== undefined && Number(baseline.weight) > 0 ? baseline.weight : 20;
+              const weight = (prevWeight && Number(prevWeight) > 0)
+                ? prevWeight
+                : ((templateWeight && Number(templateWeight) > 0) ? templateWeight : fallbackWeight);
+              return { ...s, weight };
+            }
+            return s;
+          })
+        };
+      });
+      updateActiveWorkout(sanitized);
     }
     navigate('/workout-complete');
   };
@@ -530,14 +602,14 @@ export default function LogWorkout() {
                 {/* Column Headers */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: '40px 1fr 1fr 44px 28px',
-                  gap: '8px',
+                  gridTemplateColumns: '32px 1fr 1fr 44px 28px',
+                  gap: '6px',
                   fontSize: '11px',
                   fontWeight: '700',
                   color: '#8E8E93',
                   letterSpacing: '0.8px',
                   textTransform: 'uppercase',
-                  padding: '0 8px 6px 8px',
+                  padding: '0 4px 6px 4px',
                   borderBottom: '1px solid rgba(255, 255, 255, 0.05)'
                 }}>
                   <div style={{ textAlign: 'center' }}>SET</div>
@@ -558,15 +630,15 @@ export default function LogWorkout() {
                           display: 'flex',
                           flexDirection: 'column',
                           background: s.completed 
-                            ? 'rgba(0, 208, 156, 0.04)' 
+                            ? 'rgba(16, 185, 129, 0.08)' 
                             : isActive 
-                              ? 'rgba(255, 114, 67, 0.07)' 
+                              ? 'rgba(16, 185, 129, 0.06)' 
                               : 'rgba(255, 255, 255, 0.03)',
                           borderRadius: '14px',
                           border: isActive 
-                            ? '1px solid rgba(255, 114, 67, 0.5)' 
+                            ? '1px solid rgba(16, 185, 129, 0.4)' 
                             : s.completed 
-                              ? '1px solid rgba(0, 208, 156, 0.22)' 
+                              ? '1px solid rgba(16, 185, 129, 0.25)' 
                               : '1px solid rgba(255, 255, 255, 0.06)',
                           transition: 'all 0.2s ease',
                           overflow: 'hidden'
@@ -576,10 +648,10 @@ export default function LogWorkout() {
                         <div
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: '40px 1fr 1fr 44px 28px',
-                            gap: '8px',
+                            gridTemplateColumns: '32px 1fr 1fr 44px 28px',
+                            gap: '6px',
                             alignItems: 'center',
-                            padding: '6px 10px'
+                            padding: '6px 6px'
                           }}
                         >
                           {/* Set Number Pill */}
@@ -587,7 +659,7 @@ export default function LogWorkout() {
                             <span style={{
                               fontSize: '12px',
                               fontWeight: '800',
-                              color: isActive ? '#FF7243' : s.completed ? '#00D09C' : '#8E8E93'
+                              color: isActive ? '#10B981' : s.completed ? '#10B981' : '#8E8E93'
                             }}>
                               {setIdx + 1}
                             </span>
@@ -610,7 +682,8 @@ export default function LogWorkout() {
                                 textAlign: 'center',
                                 fontSize: '17px',
                                 fontWeight: '700',
-                                color: '#FFFFFF'
+                                color: '#FFFFFF',
+                                paddingRight: !s.completed ? '36px' : '0'
                               }}
                             />
                             {!s.completed && (
@@ -620,16 +693,22 @@ export default function LogWorkout() {
                                 aria-label="Open plate calculator"
                                 style={{
                                   position: 'absolute',
-                                  right: '4px',
-                                  opacity: 0.45,
+                                  right: 0,
+                                  top: '50%',
+                                  transform: 'translateY(-50%)',
+                                  width: '44px',
+                                  height: '44px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  opacity: 0.5,
                                   color: '#FFFFFF',
-                                  padding: '4px',
                                   cursor: 'pointer',
                                   background: 'transparent',
                                   border: 'none'
                                 }}
                               >
-                                <Disc3 size={15} />
+                                <Disc3 size={16} />
                               </button>
                             )}
                           </div>
@@ -656,22 +735,22 @@ export default function LogWorkout() {
                             />
                           </div>
 
-                          {/* Check Button */}
+                          {/* Check Button (44px x 44px hit area) */}
                           <div style={{ display: 'flex', justifyContent: 'center' }}>
                             <button
                               className={s.completed ? 'animate-pop' : ''}
                               onClick={() => toggleComplete(exIdx, setIdx)}
                               aria-label={`Toggle set ${setIdx + 1}`}
                               style={{
-                                width: '32px',
-                                height: '32px',
-                                borderRadius: '10px',
+                                width: '44px',
+                                height: '44px',
+                                borderRadius: '12px',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                background: s.completed ? '#00D09C' : isActive ? 'rgba(255, 114, 67, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                                color: s.completed ? '#0D0D0D' : isActive ? '#FF7243' : '#8E8E93',
-                                border: s.completed ? 'none' : isActive ? '1px solid #FF7243' : '1px solid rgba(255, 255, 255, 0.08)',
+                                background: s.completed ? '#10B981' : isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                color: s.completed ? '#0D0D0D' : isActive ? '#10B981' : '#8E8E93',
+                                border: s.completed ? 'none' : isActive ? '1px solid #10B981' : '1px solid rgba(255, 255, 255, 0.08)',
                                 boxShadow: 'none',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s ease'
@@ -833,7 +912,7 @@ export default function LogWorkout() {
       {/* CENTERED ACTIVE REST TIMER WITH FULLSCREEN HEAVY BLUR OVERLAY */}
       {restTime > 0 && (
         <div 
-          className="animate-fade-in"
+          className="modal-overlay animate-fade-in"
           style={{
             position: 'fixed',
             inset: 0,
@@ -849,15 +928,15 @@ export default function LogWorkout() {
           onClick={() => setRestTime(0)}
         >
           <div 
-            className="animate-scale-in"
+            className="modal-bottom-sheet glass-modal animate-scale-in"
             onClick={e => e.stopPropagation()}
             style={{
               background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(18, 22, 30, 0.88)',
               backdropFilter: 'blur(40px) saturate(200%)',
               WebkitBackdropFilter: 'blur(40px) saturate(200%)',
               borderRadius: '28px',
-              border: '1px solid rgba(255, 114, 67, 0.4)',
-              borderTop: '1.5px solid rgba(255, 140, 95, 0.6)',
+              border: '1px solid rgba(16, 185, 129, 0.4)',
+              borderTop: '1.5px solid rgba(16, 185, 129, 0.6)',
               width: '100%',
               maxWidth: '400px',
               padding: '36px 28px',
@@ -865,7 +944,7 @@ export default function LogWorkout() {
               flexDirection: 'column',
               alignItems: 'center',
               textAlign: 'center',
-              boxShadow: '0 30px 80px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(255, 114, 67, 0.15)'
+              boxShadow: '0 30px 80px -15px rgba(0, 0, 0, 0.8), 0 0 40px rgba(16, 185, 129, 0.15)'
             }}
           >
             {/* Top Indicator */}
@@ -873,8 +952,8 @@ export default function LogWorkout() {
               display: 'inline-flex',
               alignItems: 'center',
               gap: '8px',
-              background: 'rgba(255, 114, 67, 0.15)',
-              border: '1px solid rgba(255, 114, 67, 0.3)',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
               padding: '6px 14px',
               borderRadius: '9999px',
               marginBottom: '20px'
@@ -883,10 +962,10 @@ export default function LogWorkout() {
                 width: '8px',
                 height: '8px',
                 borderRadius: '50%',
-                backgroundColor: '#FF7243',
-                boxShadow: '0 0 8px #FF7243'
+                backgroundColor: '#10B981',
+                boxShadow: '0 0 8px #10B981'
               }} />
-              <span style={{ fontSize: '11px', fontWeight: '800', color: '#FF7243', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
+              <span style={{ fontSize: '11px', fontWeight: '800', color: '#10B981', letterSpacing: '0.8px', textTransform: 'uppercase' }}>
                 Resting Recovery Interval
               </span>
             </div>

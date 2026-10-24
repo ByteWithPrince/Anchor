@@ -9,13 +9,16 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
 
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
-  const [useSimulation, setUseSimulation] = useState(false);
   const [distanceKm, setDistanceKm] = useState(0);
   const [elapsedSecs, setElapsedSecs] = useState(0);
   const [path, setPath] = useState([]);
+  const [currentSpeed, setCurrentSpeed] = useState(0);
+  const [isStationary, setIsStationary] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
 
   const timerRef = useRef(null);
+
+  const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 
   // Keyboard ESC listener
   useEffect(() => {
@@ -27,6 +30,7 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Elapsed timer
   useEffect(() => {
     if (isRecording && !isPaused) {
       timerRef.current = setInterval(() => {
@@ -40,10 +44,11 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     };
   }, [isRecording, isPaused]);
 
-  // Clean up GPS on unmount
+  // Clean up GPS on unmount or close
   useEffect(() => {
     return () => {
       gpsService.stop();
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
@@ -53,21 +58,25 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     setIsRecording(true);
     setIsPaused(false);
     setErrorMessage(null);
+    setDistanceKm(0);
+    setElapsedSecs(0);
+    setPath([]);
+    setIsStationary(true);
+    setCurrentSpeed(0);
 
     const onUpdate = (data) => {
       setDistanceKm(data.distanceKm);
       setPath([...data.path]);
+      setIsStationary(data.isStationary);
+      setCurrentSpeed(data.speed || 0);
     };
 
     const onError = (err) => {
-      setErrorMessage(err.message || 'GPS Signal Unavailable. You can use Simulation mode.');
+      console.warn('GPS hardware error:', err);
+      setErrorMessage(err.message || 'GPS location signal unavailable.');
     };
 
-    if (useSimulation) {
-      gpsService.startSimulation(onUpdate);
-    } else {
-      gpsService.start(onUpdate, onError);
-    }
+    gpsService.start(onUpdate, onError);
   };
 
   const handlePause = () => {
@@ -80,12 +89,10 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     const onUpdate = (data) => {
       setDistanceKm(data.distanceKm);
       setPath([...data.path]);
+      setIsStationary(data.isStationary);
+      setCurrentSpeed(data.speed || 0);
     };
-    if (useSimulation) {
-      gpsService.startSimulation(onUpdate);
-    } else {
-      gpsService.start(onUpdate, (err) => setErrorMessage(err.message));
-    }
+    gpsService.start(onUpdate, (err) => setErrorMessage(err.message));
   };
 
   const handleFinish = () => {
@@ -93,11 +100,10 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     setIsRecording(false);
     setIsPaused(false);
 
-    const durationMin = Math.max(1, Math.round(elapsedSecs / 60));
-    const savedDistance = Number(distanceKm.toFixed(2));
-
-    if (savedDistance > 0.01) {
-      addCardioLog(savedDistance, durationMin);
+    // Only save session if physical movement of at least 0.01 km (10m) occurred
+    if (distanceKm >= 0.01) {
+      const durationMin = Math.max(1, Math.round(elapsedSecs / 60));
+      addCardioLog(Number(distanceKm.toFixed(2)), durationMin);
     }
 
     onClose();
@@ -109,22 +115,46 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Calculate Pace (min/km)
+  // Calculate live Pace (min/km). If idle/stationary (< 0.01 km), strictly show "--:-- /km"
   const calcPace = () => {
-    if (distanceKm < 0.05 || elapsedSecs < 5) return "--'--\"";
+    if (distanceKm < 0.01 || elapsedSecs < 5) {
+      return "--:-- /km";
+    }
     const paceDecimal = (elapsedSecs / 60) / distanceKm;
-    const paceMins = Math.floor(paceDecimal);
-    const paceSecs = Math.round((paceDecimal - paceMins) * 60);
+    const clampedPace = Math.min(20, Math.max(2.5, paceDecimal));
+    const paceMins = Math.floor(clampedPace);
+    const paceSecs = Math.round((clampedPace - paceMins) * 60);
     return `${paceMins}'${paceSecs.toString().padStart(2, '0')}"/km`;
   };
 
-  // Normalize path coordinates to SVG bounding box
+  // Calories burned strictly stays at 0 kcal when idle/stationary
+  const burnedKcal = distanceKm >= 0.01 ? Math.round(distanceKm * 65) : 0;
+
+  // Status text based on device environment and speed
+  const getStatusText = () => {
+    if (!isRecording) {
+      return isMobile 
+        ? "Tap START TRACKING to begin recording GPS route" 
+        : "Awaiting physical movement (Open Anchor PWA on your phone or pair Fitband for outdoor runs)";
+    }
+    if (isStationary || distanceKm < 0.003) {
+      return isMobile
+        ? "Stationary (0.0 km/h) · Move outdoors to record route"
+        : "Awaiting physical movement (Open Anchor PWA on your phone or pair Fitband for outdoor runs)";
+    }
+    const kmh = (currentSpeed * 3.6).toFixed(1);
+    return `GPS Active · Moving at ${kmh} km/h`;
+  };
+
+  // Render SVG route path when user moves outdoors
   const renderPathSvg = () => {
-    if (path.length < 2) {
+    if (path.length < 2 || distanceKm < 0.01) {
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '180px', color: '#8E8E93', fontSize: '13px', gap: '8px' }}>
-          <Navigation2 size={24} className={isRecording ? "animate-pop" : ""} color="#FF7243" />
-          <span>{isRecording ? "Tracking live satellite path..." : "Press START to begin recording route"}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '180px', color: '#8E8E93', fontSize: '12px', gap: '8px', padding: '16px', textAlign: 'center' }}>
+          <Navigation2 size={22} className={isRecording && !isStationary ? "animate-pop" : ""} color={isRecording ? "#10B981" : "#8E8E93"} />
+          <span style={{ maxWidth: '320px', lineHeight: 1.4 }}>
+            {getStatusText()}
+          </span>
         </div>
       );
     }
@@ -155,38 +185,37 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
 
     return (
       <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: '180px' }}>
-        {/* Subtle grid */}
         <line x1="0" y1="45" x2={width} y2="45" stroke="rgba(255,255,255,0.04)" />
         <line x1="0" y1="90" x2={width} y2="90" stroke="rgba(255,255,255,0.04)" />
         <line x1="0" y1="135" x2={width} y2="135" stroke="rgba(255,255,255,0.04)" />
 
-        {/* GPS Breadcrumb Trajectory */}
         <polyline
           points={points}
           fill="none"
-          stroke="#FF7243"
+          stroke="#10B981"
           strokeWidth="3.5"
           strokeLinecap="round"
           strokeLinejoin="round"
-          filter="drop-shadow(0 0 6px rgba(255, 114, 67, 0.6))"
+          filter="drop-shadow(0 0 6px rgba(16, 185, 129, 0.6))"
         />
 
-        {/* Current Position Marker */}
-        <circle cx={lastX} cy={lastY} r="7" fill="#FFFFFF" stroke="#FF7243" strokeWidth="3" />
-        <circle cx={lastX} cy={lastY} r="14" fill="rgba(255, 114, 67, 0.25)" />
+        <circle cx={lastX} cy={lastY} r="7" fill="#FFFFFF" stroke="#10B981" strokeWidth="3" />
+        <circle cx={lastX} cy={lastY} r="14" fill="rgba(16, 185, 129, 0.25)" />
       </svg>
     );
   };
 
+  const canSave = distanceKm >= 0.01;
+
   return createPortal(
     <div 
-      className="animate-fade-in"
+      className="modal-overlay animate-fade-in"
       style={{
         position: 'fixed',
         inset: 0,
         width: '100vw',
         height: '100vh',
-        background: 'rgba(0, 0, 0, 0.42)',
+        background: 'rgba(0, 0, 0, 0.65)',
         backdropFilter: 'blur(48px) saturate(200%)',
         WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         zIndex: 99999,
@@ -197,46 +226,33 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
       }}
       onClick={onClose}
     >
-      {/* Dynamic Ambient Luminous Backing Aura */}
-      <div style={{
-        position: 'absolute',
-        width: '460px',
-        height: '460px',
-        borderRadius: '50%',
-        background: isRecording
-          ? 'radial-gradient(circle, rgba(0, 208, 156, 0.25) 0%, rgba(99, 102, 241, 0.15) 50%, transparent 70%)'
-          : 'radial-gradient(circle, rgba(255, 114, 67, 0.25) 0%, rgba(255, 180, 0, 0.12) 50%, transparent 70%)',
-        filter: 'blur(60px)',
-        pointerEvents: 'none',
-        zIndex: 0,
-        transition: 'background 0.5s ease'
-      }} />
-
       <div 
-        className="glass-modal animate-scale-in"
+        className="modal-bottom-sheet glass-modal animate-scale-in"
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%',
           maxWidth: '490px',
-          padding: '32px 28px',
+          padding: '28px 24px',
           display: 'flex',
           flexDirection: 'column',
           position: 'relative',
-          zIndex: 1
+          zIndex: 1,
+          background: '#0D0D0D',
+          border: '1px solid rgba(255, 255, 255, 0.10)',
+          borderRadius: '24px'
         }}
-        onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div style={{ 
-              width: '12px', 
-              height: '12px', 
+              width: '10px', 
+              height: '10px', 
               borderRadius: '50%', 
-              background: isRecording ? '#00D09C' : '#8E8E93',
-              boxShadow: isRecording ? '0 0 10px #00D09C' : 'none'
+              background: isRecording ? '#10B981' : '#8E8E93',
+              boxShadow: isRecording ? '0 0 10px #10B981' : 'none'
             }} />
-            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#F3F4F6', letterSpacing: '-0.2px', margin: 0 }}>
               Live GPS Activity Tracker
             </h3>
           </div>
@@ -252,61 +268,50 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#8E8E93'
+              color: '#8E8E93',
+              border: 'none',
+              cursor: 'pointer'
             }}
           >
             <X size={18} />
           </button>
         </div>
 
-        {/* Mode Toggle: Real Hardware GPS vs Simulated Movement */}
-        {!isRecording && (
-          <div 
-            className="glass-card"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              background: 'rgba(255, 255, 255, 0.03)',
-              padding: '10px 16px',
-              borderRadius: '14px',
-              marginBottom: '20px',
-              border: '1px solid rgba(255, 255, 255, 0.06)'
-            }}
-          >
-            <span style={{ fontSize: '12px', fontWeight: '600', color: '#CCCCCC' }}>
-              {useSimulation ? '⚡ Demo Mode: Simulated Run' : '🛰️ Real Device GPS Sensor'}
-            </span>
-            <button
-              onClick={() => setUseSimulation(!useSimulation)}
-              style={{
-                fontSize: '11px',
-                fontWeight: '700',
-                background: useSimulation ? '#FF7243' : 'rgba(255, 255, 255, 0.08)',
-                color: '#FFFFFF',
-                padding: '4px 12px',
-                borderRadius: '9999px',
-                border: 'none',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                boxShadow: useSimulation ? '0 2px 8px rgba(255, 114, 67, 0.4)' : 'none'
-              }}
-            >
-              {useSimulation ? 'Using Simulation' : 'Enable Demo'}
-            </button>
-          </div>
-        )}
+        {/* GPS Hardware Status Pill */}
+        <div 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            background: 'rgba(255, 255, 255, 0.03)',
+            padding: '10px 14px',
+            borderRadius: '12px',
+            marginBottom: '16px',
+            border: '1px solid rgba(255, 255, 255, 0.06)'
+          }}
+        >
+          <div style={{
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: isRecording ? '#10B981' : '#8E8E93',
+            flexShrink: 0
+          }} />
+          <span style={{ fontSize: '11px', fontWeight: '600', color: isRecording ? '#F3F4F6' : '#8E8E93', lineHeight: 1.3 }}>
+            {getStatusText()}
+          </span>
+        </div>
 
         {errorMessage && (
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            background: 'rgba(255, 114, 67, 0.1)',
-            border: '1px solid rgba(255, 114, 67, 0.3)',
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
             padding: '10px 14px',
             borderRadius: '12px',
-            color: '#FF7243',
+            color: '#EF4444',
             fontSize: '12px',
             marginBottom: '16px'
           }}>
@@ -325,47 +330,46 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
           <div style={{
             fontSize: '56px',
             fontWeight: '900',
-            color: '#FFFFFF',
+            color: '#F3F4F6',
             letterSpacing: '-2px',
             lineHeight: 1
           }}>
             {distanceKm.toFixed(2)}
             <span style={{ fontSize: '20px', fontWeight: '500', color: '#8E8E93', marginLeft: '6px' }}>km</span>
           </div>
-          <div style={{ fontSize: '12px', color: '#8E8E93', fontWeight: '600', textTransform: 'uppercase', marginTop: '6px' }}>
+          <div style={{ fontSize: '11px', color: '#8E8E93', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: '6px' }}>
             Distance Traveled
           </div>
         </div>
 
         {/* Stats Grid: Time, Pace, Calories */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px', textAlign: 'center' }}>
-          <div className="glass-card" style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF' }}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+            <div style={{ fontSize: '18px', fontWeight: '700', color: '#F3F4F6' }}>
               {formatTime(elapsedSecs)}
             </div>
-            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px' }}>Time</div>
+            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px', fontWeight: '600' }}>Time</div>
           </div>
 
-          <div className="glass-card" style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF' }}>
+          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+            <div style={{ fontSize: '18px', fontWeight: '700', color: '#F3F4F6' }}>
               {calcPace()}
             </div>
-            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px' }}>Avg Pace</div>
+            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px', fontWeight: '600' }}>Avg Pace</div>
           </div>
 
-          <div className="glass-card" style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: '#FF7243' }}>
-              {Math.round(distanceKm * 65)} kcal
+          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+            <div style={{ fontSize: '18px', fontWeight: '700', color: distanceKm >= 0.01 ? '#10B981' : '#8E8E93' }}>
+              {burnedKcal} kcal
             </div>
-            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px' }}>Burned</div>
+            <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '4px', fontWeight: '600' }}>Burned</div>
           </div>
         </div>
 
         {/* Interactive Breadcrumb Map Container */}
         <div 
-          className="glass-card"
           style={{
-            background: 'rgba(10, 10, 10, 0.4)',
+            background: 'rgba(0, 0, 0, 0.5)',
             borderRadius: '18px',
             border: '1px solid rgba(255, 255, 255, 0.06)',
             overflow: 'hidden',
@@ -382,8 +386,8 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
               onClick={handleStart}
               style={{
                 flex: 1,
-                background: '#FF7243',
-                color: '#FFFFFF',
+                background: '#10B981',
+                color: '#0D0D0D',
                 fontWeight: '800',
                 fontSize: '15px',
                 padding: '16px',
@@ -392,10 +396,12 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                boxShadow: '0 4px 16px rgba(255, 114, 67, 0.35)'
+                boxShadow: '0 4px 16px rgba(16, 185, 129, 0.35)',
+                border: 'none',
+                cursor: 'pointer'
               }}
             >
-              <Play size={18} fill="#FFFFFF" />
+              <Play size={18} fill="#0D0D0D" />
               <span>START TRACKING</span>
             </button>
           ) : (
@@ -405,8 +411,8 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                   onClick={handlePause}
                   style={{
                     flex: 1,
-                    background: '#333333',
-                    color: '#FFFFFF',
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    color: '#F3F4F6',
                     fontWeight: '700',
                     fontSize: '14px',
                     padding: '14px',
@@ -414,7 +420,9 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px'
+                    gap: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.10)',
+                    cursor: 'pointer'
                   }}
                 >
                   <Pause size={18} />
@@ -425,8 +433,8 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                   onClick={handleResume}
                   style={{
                     flex: 1,
-                    background: '#00D09C',
-                    color: '#161616',
+                    background: '#10B981',
+                    color: '#0D0D0D',
                     fontWeight: '800',
                     fontSize: '14px',
                     padding: '14px',
@@ -434,20 +442,24 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px'
+                    gap: '6px',
+                    border: 'none',
+                    cursor: 'pointer'
                   }}
                 >
-                  <Play size={18} fill="#161616" />
+                  <Play size={18} fill="#0D0D0D" />
                   <span>Resume</span>
                 </button>
               )}
 
               <button
                 onClick={handleFinish}
+                disabled={!canSave}
+                title={canSave ? "Finish and save cardio session" : "Move at least 0.01 km outdoors to save session"}
                 style={{
                   flex: 1,
-                  background: '#FF7243',
-                  color: '#FFFFFF',
+                  background: canSave ? '#10B981' : 'rgba(255, 255, 255, 0.06)',
+                  color: canSave ? '#0D0D0D' : '#8E8E93',
                   fontWeight: '800',
                   fontSize: '14px',
                   padding: '14px',
@@ -456,12 +468,14 @@ export default function GpsTrackerModal({ isOpen, onClose }) {
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '6px',
-                  boxShadow: 'none',
-                  border: 'none',
-                  cursor: 'pointer'
+                  boxShadow: canSave ? '0 4px 14px rgba(16, 185, 129, 0.3)' : 'none',
+                  border: canSave ? 'none' : '1px solid rgba(255, 255, 255, 0.08)',
+                  cursor: canSave ? 'pointer' : 'not-allowed',
+                  opacity: canSave ? 1 : 0.6,
+                  transition: 'all 0.2s ease'
                 }}
               >
-                <Square size={18} fill="#FFFFFF" />
+                <Square size={18} fill={canSave ? "#0D0D0D" : "#8E8E93"} />
                 <span>Finish & Save</span>
               </button>
             </>

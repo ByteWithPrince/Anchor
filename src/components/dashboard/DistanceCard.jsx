@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Navigation } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import GpsTrackerModal from '../GpsTrackerModal';
 
@@ -10,7 +10,8 @@ export default function DistanceCard({ dragHandleProps }) {
 
   const monthlyDist = getMonthlyDistance ? getMonthlyDistance() : 0;
   const displayDistance = monthlyDist.toFixed(2);
-  const sessionCount = cardioLogs.length;
+  const sessionCount = (cardioLogs || []).length;
+  const latestSession = sessionCount > 0 ? cardioLogs[sessionCount - 1] : null;
 
   return (
     <div className="vexora-card" style={{
@@ -61,19 +62,19 @@ export default function DistanceCard({ dragHandleProps }) {
         {/* River / contour */}
         <path d="M 0,260 C 80,240 160,300 320,270" stroke="#161616" strokeWidth="26" fill="none" />
 
-        {/* Active GPS Route Trace (Glowing Line) */}
+        {/* Active GPS Route Trace (Glowing Line in Emerald) */}
         <path
           d="M 60,220 Q 120,180 160,200 T 240,130"
-          stroke="#FF7243"
+          stroke="#10B981"
           strokeWidth="3.5"
           fill="none"
           strokeLinecap="round"
         />
 
         {/* GPS waypoint circle */}
-        <circle cx="240" cy="130" r="5" fill="#FFFFFF" stroke="#FF7243" strokeWidth="2.5" />
+        <circle cx="240" cy="130" r="5" fill="#FFFFFF" stroke="#10B981" strokeWidth="2.5" />
 
-        {/* Location Text Labels matching Vexora */}
+        {/* Location Text Labels */}
         <text x="210" y="190" fill="#6E6E73" fontSize="10" fontWeight="600" fontFamily="sans-serif">Bloomfield</text>
         <text x="175" y="270" fill="#6E6E73" fontSize="10" fontWeight="600" fontFamily="sans-serif">Chelsea</text>
         <text x="255" y="110" fill="#6E6E73" fontSize="9" fontWeight="600" fontFamily="sans-serif">Mariner</text>
@@ -86,9 +87,20 @@ export default function DistanceCard({ dragHandleProps }) {
       <div style={{ position: 'relative', zIndex: 2 }}>
         {/* Top Header: Title + Drag Handle */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
-            Distance
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: '600', color: '#FFFFFF', letterSpacing: '-0.2px' }}>
+              Distance
+            </h2>
+            {monthlyDist > 0 && (
+              <span style={{
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                background: '#10B981',
+                boxShadow: '0 0 8px #10B981'
+              }} />
+            )}
+          </div>
           <div 
             {...dragHandleProps}
             role="button"
@@ -132,37 +144,42 @@ export default function DistanceCard({ dragHandleProps }) {
           </span>
         </div>
 
-        {/* Subtitle */}
+        {/* Subtitle & Latest Session Summary */}
         <p style={{
           fontSize: '13px',
           color: '#8E8E93',
           fontWeight: '500',
           marginTop: '6px',
-          marginBottom: '20px'
+          marginBottom: '20px',
+          lineHeight: 1.4
         }}>
           {monthlyDist === 0 
             ? 'No GPS cardio recorded this month · Tap to start' 
-            : `Total distance tracked this month (${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'})`}
+            : `Tracked ${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'} this month · Latest: ${latestSession?.distanceKm ? Number(latestSession.distanceKm).toFixed(2) : displayDistance} km (~${Math.max(1, Math.round((latestSession?.distanceKm || monthlyDist) * 65))} kcal)`}
         </p>
 
-        {/* Orange Pill Action Button */}
+        {/* Emerald Pill Action Button */}
         <button
           onClick={() => setGpsModalOpen(true)}
           style={{
-            background: '#FF7243',
-            color: '#FFFFFF',
-            fontWeight: '700',
+            background: '#10B981',
+            color: '#0D0D0D',
+            fontWeight: '800',
             fontSize: '13px',
             padding: '12px 24px',
             borderRadius: '9999px',
-            boxShadow: 'none',
+            boxShadow: '0 4px 16px rgba(16, 185, 129, 0.3)',
             border: 'none',
             letterSpacing: '0.2px',
             cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
             transition: 'transform 0.15s ease, background-color 0.2s ease'
           }}
         >
-          {monthlyDist === 0 ? 'Start GPS Track' : 'View GPS Activity'}
+          <Navigation size={15} fill="#0D0D0D" />
+          <span>{monthlyDist === 0 ? 'Start GPS Track' : 'Live GPS Activity'}</span>
         </button>
       </div>
 

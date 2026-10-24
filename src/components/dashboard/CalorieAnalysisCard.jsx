@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { GripVertical, Zap, Droplet } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useStore, getTodayStr } from '../../store/useStore';
+import { useStore, getTodayStr, roundMacro } from '../../store/useStore';
 
 export default function CalorieAnalysisCard({ dragHandleProps }) {
   const navigate = useNavigate();
@@ -18,10 +18,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
 
   // Daily logs
   const todayFoods = foodLogs.filter(f => f.date === todayStr);
-  const todayCalories = todayFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0);
-  const todayProtein = todayFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0);
-  const todayCarbs = todayFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0);
-  const todayFat = todayFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0);
+  const todayCalories = roundMacro(todayFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0));
+  const todayProtein = roundMacro(todayFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0));
+  const todayCarbs = roundMacro(todayFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0));
+  const todayFat = roundMacro(todayFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0));
 
   // Weekly 7-day average calculation
   const past7Dates = [];
@@ -32,10 +32,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
     past7Dates.push(d.toISOString().split('T')[0]);
   }
   const weekFoods = foodLogs.filter(f => past7Dates.includes(f.date));
-  const weekAvgCalories = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0) / 7);
-  const weekAvgProtein = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0) / 7);
-  const weekAvgCarbs = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0) / 7);
-  const weekAvgFat = Math.round(weekFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0) / 7);
+  const weekAvgCalories = roundMacro(weekFoods.reduce((acc, f) => acc + (Number(f.calories) || 0), 0) / 7);
+  const weekAvgProtein = roundMacro(weekFoods.reduce((acc, f) => acc + (Number(f.protein) || 0), 0) / 7);
+  const weekAvgCarbs = roundMacro(weekFoods.reduce((acc, f) => acc + (Number(f.carbs) || 0), 0) / 7);
+  const weekAvgFat = roundMacro(weekFoods.reduce((acc, f) => acc + (Number(f.fat) || 0), 0) / 7);
 
   const currentCalories = filter === 'Daily' ? todayCalories : weekAvgCalories;
   const currentProtein = filter === 'Daily' ? todayProtein : weekAvgProtein;

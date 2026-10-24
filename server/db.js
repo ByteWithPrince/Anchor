@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const dbPath = process.env.DATABASE_PATH 
   ? path.resolve(process.env.DATABASE_PATH)
-  : path.join(__dirname, 'anchor.db');
+  : (process.env.DB_DIR ? path.join(path.resolve(process.env.DB_DIR), 'anchor.db') : path.join(__dirname, 'anchor.db'));
 
 export const db = new DatabaseSync(dbPath);
 

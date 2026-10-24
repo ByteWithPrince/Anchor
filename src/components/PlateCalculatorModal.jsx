@@ -53,13 +53,13 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
 
   const modalContent = (
     <div 
-      className="animate-fade-in"
+      className="modal-overlay animate-fade-in"
       style={{
         position: 'fixed',
         inset: 0,
         width: '100vw',
         height: '100vh',
-        backgroundColor: 'rgba(0, 0, 0, 0.35)',
+        backgroundColor: 'rgba(0, 0, 0, 0.55)',
         backdropFilter: 'blur(48px) saturate(200%)',
         WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         zIndex: 99999,
@@ -71,7 +71,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
       onClick={onClose}
     >
       <div 
-        className="animate-scale-in"
+        className="modal-bottom-sheet glass-modal animate-scale-in"
         style={{
           width: '100%',
           maxWidth: '480px',
@@ -98,12 +98,12 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
               width: '36px',
               height: '36px',
               borderRadius: '10px',
-              background: 'rgba(0, 208, 156, 0.15)',
-              border: '1px solid rgba(0, 208, 156, 0.3)',
+              background: 'rgba(16, 185, 129, 0.15)',
+              border: '1px solid rgba(16, 185, 129, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#00D09C'
+              color: '#10B981'
             }}>
               <Disc3 size={20} />
             </div>
@@ -112,7 +112,7 @@ export default function PlateCalculatorModal({ isOpen, onClose, initialWeight, t
                 OLYMPIC BARBELL LOADER
               </span>
               <div style={{ fontSize: '30px', fontWeight: '900', letterSpacing: '-0.5px', color: '#FFFFFF', lineHeight: 1.1 }}>
-                {weight} <span style={{ fontSize: '15px', color: '#00D09C', fontWeight: '800' }}>KG</span>
+                {weight} <span style={{ fontSize: '15px', color: '#10B981', fontWeight: '800' }}>KG</span>
               </div>
             </div>
           </div>

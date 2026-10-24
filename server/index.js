@@ -11,11 +11,13 @@ import telemetryRouter from './routes/telemetry.js';
 import syncRouter from './routes/sync.js';
 import { authenticateToken } from './middleware/auth.js';
 import { authRateLimiter, syncRateLimiter, generalRateLimiter } from './middleware/rateLimiter.js';
+import { securityHeaders } from './securityHeaders.js';
 
 const app = express();
 const PORT = process.env.SERVER_PORT || process.env.PORT || 5001;
 
 // Global Middleware
+app.use(securityHeaders);
 const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 app.use(cors({
   origin: (origin, callback) => {

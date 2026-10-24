@@ -198,11 +198,27 @@ input.box-input:focus {
 .vexora-dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 20px;
-  margin-bottom: 40px;
+  gap: 12px;
+  margin-bottom: 32px;
   width: 100%;
 }
 
+/* Tablet (768px – 1024px): 2-Column Bento Grid */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .vexora-dashboard-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 16px !important;
+    align-items: stretch;
+  }
+
+  .grid-col-6,
+  .grid-col-3 {
+    grid-column: span 1 !important;
+    width: 100% !important;
+  }
+}
+
+/* Desktop (> 1024px): Multi-Column Bento Grid */
 @media (min-width: 1024px) {
   .vexora-dashboard-grid {
     grid-template-columns: repeat(12, 1fr);
@@ -217,16 +233,153 @@ input.box-input:focus {
   .grid-col-3 {
     grid-column: span 3;
   }
-
-  .mobile-only-nav {
-    display: none !important;
-  }
 }
 
 @media (min-width: 1600px) {
   .vexora-dashboard-grid {
     gap: 28px;
   }
+}
+
+/* Mobile Screens (< 768px): Single-Column Stack with Safe Padding */
+@media (max-width: 767px) {
+  .app-container {
+    padding: 12px 16px 88px 16px !important;
+    overflow-x: hidden !important;
+  }
+
+  .vexora-dashboard-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+    margin-bottom: 20px !important;
+  }
+
+  .grid-col-6,
+  .grid-col-3 {
+    grid-column: span 1 !important;
+    width: 100% !important;
+  }
+}
+
+/* Navigation: Desktop Pill vs Mobile Bottom Nav Bar */
+@media (min-width: 769px) {
+  .mobile-only-bottom-nav {
+    display: none !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .desktop-nav-pill,
+  .hide-on-mobile {
+    display: none !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .sync-btn-text {
+    display: none !important;
+  }
+}
+
+
+/* iOS Safari Input Auto-Zoom Fix (16px minimum on <= 768px) */
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Mobile Bottom-Sheet Modals (< 640px) */
+@media (max-width: 640px) {
+  .modal-overlay {
+    align-items: flex-end !important;
+    padding: 0 !important;
+  }
+
+  .modal-bottom-sheet,
+  .glass-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 20px 20px 0 0 !important;
+    max-height: 90dvh !important;
+    overflow-y: auto !important;
+    border-bottom: none !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom)) !important;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  }
+}
+
+/* Responsive Split Panels (< 900px vertical stack) */
+.split-panel-2col {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 28px;
+}
+
+@media (max-width: 900px) {
+  .split-panel-2col {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+}
+
+
+/* Preset Splits Responsive Grid */
+.preset-splits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 640px) {
+  .preset-splits-grid {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+}
+
+/* Daily Nutrition Targets: 2x2 Grid on Mobile & Tablet */
+.nutrition-targets-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .nutrition-targets-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .nutrition-targets-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+}
+
+/* Touch Momentum Horizontal Scroll Helper */
+.touch-horizontal-scroll {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.touch-horizontal-scroll::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.touch-horizontal-scroll > * {
+  scroll-snap-align: start;
+  flex-shrink: 0;
 }
 
 @media (max-width: 1023px) {

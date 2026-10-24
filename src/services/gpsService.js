@@ -1,10 +1,10 @@
 /**
  * Anchor Live GPS Service
- * Uses HTML5 Geolocation API with Haversine formula distance calculation
- * and includes a simulated movement generator for desktop testing.
+ * Uses HTML5 Geolocation API with Haversine formula distance calculation and
+ * strict stationary jitter / GPS drift filtering for realistic outdoor tracking.
  */
 
-// Haversine formula to compute great-circle distance between two GPS coordinates in kilometers
+// Haversine formula to compute distance between two coordinates in kilometers
 export function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radius of Earth in kilometers
   const toRad = (deg) => (deg * Math.PI) / 180;
@@ -26,42 +26,103 @@ export class GpsTracker {
     this.coordinates = [];
     this.totalDistanceKm = 0;
     this.isTracking = false;
-    this.simulatedTimer = null;
+    this.lastAcceptedPoint = null;
+    this.lastAcceptedTime = null;
+    this.currentSpeed = 0;
   }
 
-  // Start tracking real hardware GPS
+  // Start tracking real physical GPS
   start(onUpdate, onError) {
     if (this.isTracking) return;
     this.isTracking = true;
     this.coordinates = [];
     this.totalDistanceKm = 0;
+    this.lastAcceptedPoint = null;
+    this.lastAcceptedTime = null;
+    this.currentSpeed = 0;
 
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      if (onError) onError(new Error('Geolocation is not supported by your browser.'));
+      if (onError) onError(new Error('Geolocation is not supported by your browser or device.'));
       return;
     }
 
     this.watchId = navigator.geolocation.watchPosition(
       (position) => {
-        const { latitude, longitude, speed } = position.coords;
-        const newCoord = { lat: latitude, lng: longitude, timestamp: Date.now(), speed: speed || 0 };
+        const { latitude, longitude, accuracy, speed } = position.coords;
+        const now = position.timestamp || Date.now();
 
-        if (this.coordinates.length > 0) {
-          const lastCoord = this.coordinates[this.coordinates.length - 1];
-          const deltaKm = calculateHaversineDistance(lastCoord.lat, lastCoord.lng, latitude, longitude);
-          
-          // Filter out tiny GPS jitter (< 2 meters) and impossible teleportation (> 500 meters per second)
-          if (deltaKm > 0.002 && deltaKm < 0.5) {
-            this.totalDistanceKm += deltaKm;
+        // 1. Accuracy Filter: Ignore fixes with low accuracy > 30 meters (e.g. indoor multipath drift)
+        if (accuracy && accuracy > 30) {
+          if (onUpdate) {
+            onUpdate({
+              distanceKm: this.totalDistanceKm,
+              currentCoord: { lat: latitude, lng: longitude, speed: 0, accuracy },
+              path: this.coordinates,
+              isStationary: true,
+              accuracy,
+              speed: 0
+            });
           }
+          return;
         }
 
-        this.coordinates.push(newCoord);
+        const newPoint = { lat: latitude, lng: longitude, timestamp: now, accuracy };
+
+        // Initial GPS fix acquisition
+        if (!this.lastAcceptedPoint) {
+          this.lastAcceptedPoint = newPoint;
+          this.lastAcceptedTime = now;
+          this.coordinates.push(newPoint);
+          if (onUpdate) {
+            onUpdate({
+              distanceKm: 0,
+              currentCoord: newPoint,
+              path: this.coordinates,
+              isStationary: true,
+              accuracy,
+              speed: 0
+            });
+          }
+          return;
+        }
+
+        // 2. Stationary & Micro-Movement Drift Filter
+        const deltaKm = calculateHaversineDistance(
+          this.lastAcceptedPoint.lat,
+          this.lastAcceptedPoint.lng,
+          latitude,
+          longitude
+        );
+        const deltaMeters = deltaKm * 1000;
+        const timeDeltaSec = Math.max(0.5, (now - this.lastAcceptedTime) / 1000);
+        
+        // Instantaneous speed in m/s: use device hardware speed if valid, otherwise compute from delta
+        const calculatedSpeed = speed !== null && speed !== undefined && speed >= 0
+          ? speed
+          : deltaMeters / timeDeltaSec;
+
+        this.currentSpeed = calculatedSpeed;
+
+        // Ignore micro-movements: delta < 3 meters (0.003 km) OR speed < 0.5 m/s (~1.8 km/h, stationary idle)
+        // Also reject impossible teleportation jumps (> 500 meters or > 35 m/s / 126 km/h)
+        const isJitter = deltaMeters < 3 || calculatedSpeed < 0.5;
+        const isTeleportation = deltaMeters > 500 || calculatedSpeed > 35;
+
+        if (!isJitter && !isTeleportation) {
+          this.totalDistanceKm += deltaKm;
+          this.lastAcceptedPoint = newPoint;
+          this.lastAcceptedTime = now;
+          this.coordinates.push(newPoint);
+        }
+
         if (onUpdate) {
           onUpdate({
-            distanceKm: this.totalDistanceKm,
-            currentCoord: newCoord,
-            path: this.coordinates
+            distanceKm: Number(this.totalDistanceKm.toFixed(3)),
+            currentCoord: newPoint,
+            path: this.coordinates,
+            isStationary: isJitter,
+            accuracy,
+            speed: this.currentSpeed
           });
         }
       },
@@ -70,63 +131,23 @@ export class GpsTracker {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 1000
+        maximumAge: 0,
+        timeout: 10000
       }
     );
   }
 
-  // Stop tracking
+  // Stop tracking and clear hardware watch
   stop() {
     this.isTracking = false;
     if (this.watchId !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.clearWatch(this.watchId);
       this.watchId = null;
     }
-    if (this.simulatedTimer) {
-      clearInterval(this.simulatedTimer);
-      this.simulatedTimer = null;
-    }
     return {
       distanceKm: this.totalDistanceKm,
       path: this.coordinates
     };
-  }
-
-  // Simulator for testing indoors or on desktop devices without real GPS movement
-  startSimulation(onUpdate) {
-    if (this.isTracking) this.stop();
-    this.isTracking = true;
-    this.coordinates = [];
-    this.totalDistanceKm = 0;
-
-    // Center starting point (Central Park outdoor running loop simulation)
-    let curLat = 40.785091;
-    let curLng = -73.968285;
-    let heading = 0;
-
-    this.coordinates.push({ lat: curLat, lng: curLng, timestamp: Date.now() });
-
-    this.simulatedTimer = setInterval(() => {
-      // Advance by ~15-20 meters every second (simulates a solid 10-12 km/h running pace)
-      heading += (Math.random() - 0.5) * 0.2;
-      const stepKm = 0.015 + Math.random() * 0.005; // ~15-20 meters
-      
-      curLat += (stepKm / 111) * Math.cos(heading);
-      curLng += (stepKm / (111 * Math.cos((curLat * Math.PI) / 180))) * Math.sin(heading);
-
-      this.totalDistanceKm += stepKm;
-      const newCoord = { lat: curLat, lng: curLng, timestamp: Date.now(), speed: 3.2 };
-      this.coordinates.push(newCoord);
-
-      if (onUpdate) {
-        onUpdate({
-          distanceKm: this.totalDistanceKm,
-          currentCoord: newCoord,
-          path: this.coordinates
-        });
-      }
-    }, 1000);
   }
 }
 

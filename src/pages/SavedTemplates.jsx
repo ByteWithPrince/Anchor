@@ -332,8 +332,8 @@ export default function SavedTemplates() {
         ) : (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
-            gap: '20px'
+            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
+            gap: '16px'
           }}>
             {customRoutines.map((routine) => {
               const exercises = routine.exercises || [];

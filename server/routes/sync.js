@@ -45,7 +45,7 @@ const applyDeltaMutationsTx = db.transaction((userId, mutations, now) => {
         w.totalCompletedSets || 0,
         w.status || 'completed',
         w.timestamp || now,
-        w.updatedAt || now,
+        now,
         w.deleted ? now : null
       );
 
@@ -122,7 +122,7 @@ const applyDeltaMutationsTx = db.transaction((userId, mutations, now) => {
         food.mealType || 'meal',
         food.source || 'manual',
         food.timestamp || now,
-        food.updatedAt || now,
+        now,
         food.deleted ? now : null
       );
     }
@@ -156,7 +156,7 @@ const applyDeltaMutationsTx = db.transaction((userId, mutations, now) => {
         Number(rtn.estimatedMinutes) || 45,
         JSON.stringify(rtn.exercises || []),
         rtn.createdAt || now,
-        rtn.updatedAt || now,
+        now,
         rtn.deleted ? now : null
       );
     }

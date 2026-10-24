@@ -312,14 +312,14 @@ export default function GlobalSearchModal({ isOpen, onClose, onOpenProfile, onOp
   return createPortal(
     <div 
       onClick={onClose}
-      className="animate-fade-in"
+      className="modal-overlay animate-fade-in"
       style={{
         position: 'fixed',
         inset: 0,
         width: '100vw',
         height: '100vh',
         zIndex: 99999,
-        background: 'rgba(0, 0, 0, 0.42)',
+        background: 'rgba(0, 0, 0, 0.55)',
         backdropFilter: 'blur(48px) saturate(200%)',
         WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         display: 'flex',
@@ -331,7 +331,7 @@ export default function GlobalSearchModal({ isOpen, onClose, onOpenProfile, onOp
       {/* Modal Dialog Card */}
       <div 
         onClick={e => e.stopPropagation()}
-        className="glass-modal animate-scale-up"
+        className="modal-bottom-sheet glass-modal animate-scale-up"
         style={{
           width: '100%',
           maxWidth: '640px',

@@ -9,7 +9,7 @@ import HeartBeatCard from '../components/dashboard/HeartBeatCard';
 import WeightGoalsCard from '../components/dashboard/WeightGoalsCard';
 import CalorieAnalysisCard from '../components/dashboard/CalorieAnalysisCard';
 import DistanceCard from '../components/dashboard/DistanceCard';
-import { useStore, getTodayStr } from '../store/useStore';
+import { useStore, getTodayStr, roundMacro } from '../store/useStore';
 import SEOHead from '../components/SEOHead';
 
 const DEFAULT_CARD_ORDER = ['activity', 'workout-goals', 'vitals', 'weight-body', 'calorie-analysis', 'distance'];
@@ -86,8 +86,8 @@ export default function Home() {
   const todayFoods = foodLogs.filter(log => log.date === todayStr);
   
   const targetCalories = Number(plan?.macroTargets?.calories) || 2000;
-  const totalCalories = todayFoods.reduce((acc, curr) => acc + (Number(curr.calories) || 0), 0);
-  const netDelta = targetCalories - totalCalories;
+  const totalCalories = roundMacro(todayFoods.reduce((acc, curr) => acc + (Number(curr.calories) || 0), 0));
+  const netDelta = roundMacro(targetCalories - totalCalories);
 
   const handleDragStart = (id) => {
     setDraggedCardId(id);
@@ -147,7 +147,7 @@ export default function Home() {
           </span>
           <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#8E8E93' }} />
           {authToken ? (
-            <span style={{ fontSize: '12px', fontWeight: '700', color: '#00D09C', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: '12px', fontWeight: '700', color: '#10B981', letterSpacing: '0.5px' }}>
               LIVE SYNCED
             </span>
           ) : (
@@ -162,11 +162,11 @@ export default function Home() {
             <span style={{ 
               fontSize: '11px', 
               fontWeight: '800', 
-              background: 'rgba(0, 208, 156, 0.1)', 
-              border: '1px solid rgba(0, 208, 156, 0.3)', 
+              background: 'rgba(16, 185, 129, 0.1)', 
+              border: '1px solid rgba(16, 185, 129, 0.3)', 
               padding: '6px 14px', 
               borderRadius: '9999px',
-              color: '#00D09C', 
+              color: '#10B981', 
               letterSpacing: '0.5px' 
             }}>
               DEFICIT: -{netDelta} KCAL REMAINING
@@ -175,11 +175,11 @@ export default function Home() {
             <span style={{ 
               fontSize: '11px', 
               fontWeight: '800', 
-              background: 'rgba(255, 114, 67, 0.1)', 
-              border: '1px solid rgba(255, 114, 67, 0.3)', 
+              background: 'rgba(239, 68, 68, 0.1)', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
               padding: '6px 14px', 
               borderRadius: '9999px',
-              color: '#FF7243', 
+              color: '#EF4444', 
               letterSpacing: '0.5px' 
             }}>
               SURPLUS: +{Math.abs(netDelta)} KCAL
@@ -208,7 +208,7 @@ export default function Home() {
                 transform: isOver ? 'scale(1.01)' : 'scale(1)',
                 transition: 'transform 0.2s ease, opacity 0.2s ease',
                 borderRadius: '24px',
-                boxShadow: isOver ? '0 0 0 2px #00D09C' : 'none'
+                boxShadow: isOver ? '0 0 0 2px #10B981' : 'none'
               }}
             >
               {cardDef.render({
@@ -305,20 +305,20 @@ export default function Home() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontWeight: '700', fontSize: '14px', color: '#FFFFFF' }}>{f.name}</span>
                     {f.source === 'ai' && (
-                      <span style={{ fontSize: '9px', fontWeight: '700', color: '#00D09C', border: '1px solid #00D09C', padding: '1px 4px', borderRadius: '4px' }}>✦ AI</span>
+                      <span style={{ fontSize: '9px', fontWeight: '700', color: '#10B981', border: '1px solid #10B981', padding: '1px 4px', borderRadius: '4px' }}>✦ AI</span>
                     )}
                     {f.source === 'local' && (
-                      <span style={{ fontSize: '9px', fontWeight: '700', color: '#00D09C', opacity: 0.7, padding: '1px 4px', borderRadius: '4px' }}>⚡ FAST</span>
+                      <span style={{ fontSize: '9px', fontWeight: '700', color: '#10B981', opacity: 0.7, padding: '1px 4px', borderRadius: '4px' }}>⚡ FAST</span>
                     )}
                   </div>
                   <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '2px' }}>
-                    {f.protein || 0}g P · {f.carbs || 0}g C · {f.fat || 0}g F
+                    {roundMacro(f.protein)}g P · {roundMacro(f.carbs)}g C · {roundMacro(f.fat)}g F
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#00D09C' }}>
-                    {f.calories} <span style={{ fontSize: '10px', opacity: 0.6 }}>kcal</span>
+                  <div style={{ fontSize: '14px', fontWeight: '800', color: '#10B981' }}>
+                    {roundMacro(f.calories)} <span style={{ fontSize: '10px', opacity: 0.6 }}>kcal</span>
                   </div>
                   <button 
                     onClick={() => deleteFoodLog(f.id)}

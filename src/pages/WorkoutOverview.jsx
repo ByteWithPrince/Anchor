@@ -518,7 +518,7 @@ export default function WorkoutOverview() {
           {/* Single-row slider with hidden scrollbar and gesture/wheel support */}
           <div
             ref={sliderRef}
-            className="no-scrollbar"
+            className="no-scrollbar touch-horizontal-scroll"
             onMouseDown={handleMouseDown}
             onMouseLeave={handleMouseLeave}
             onMouseUp={handleMouseUp}
@@ -532,6 +532,7 @@ export default function WorkoutOverview() {
               cursor: isDragging ? 'grabbing' : 'grab',
               userSelect: 'none',
               scrollBehavior: 'smooth',
+              scrollSnapType: 'x mandatory',
               WebkitOverflowScrolling: 'touch',
               scrollbarWidth: 'none',
               msOverflowStyle: 'none'
@@ -552,13 +553,14 @@ export default function WorkoutOverview() {
                   className="glass-card-subtle"
                   style={{
                     flexShrink: 0,
+                    scrollSnapAlign: 'start',
                     minWidth: '175px',
                     textAlign: 'left',
                     background: isSelected 
-                      ? 'rgba(0, 208, 156, 0.16)' 
+                      ? 'rgba(16, 185, 129, 0.16)' 
                       : 'linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(18, 24, 38, 0.4)',
-                    border: isSelected ? '1.5px solid #00D09C' : '1px solid rgba(255, 255, 255, 0.09)',
-                    borderTop: isSelected ? '1.5px solid #00D09C' : '1px solid rgba(255, 255, 255, 0.18)',
+                    border: isSelected ? '1.5px solid #10B981' : '1px solid rgba(255, 255, 255, 0.09)',
+                    borderTop: isSelected ? '1.5px solid #10B981' : '1px solid rgba(255, 255, 255, 0.18)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
                     borderRadius: '18px',
@@ -566,7 +568,7 @@ export default function WorkoutOverview() {
                     cursor: 'pointer',
                     transition: 'all 0.2s ease',
                     boxShadow: isSelected 
-                      ? '0 6px 20px rgba(0, 208, 156, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2)' 
+                      ? '0 6px 20px rgba(16, 185, 129, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2)' 
                       : '0 4px 16px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
                   }}
                 >
@@ -575,7 +577,7 @@ export default function WorkoutOverview() {
                       fontSize: '10px',
                       fontWeight: '800',
                       textTransform: 'uppercase',
-                      color: isSelected ? '#00D09C' : '#8E8E93'
+                      color: isSelected ? '#10B981' : '#8E8E93'
                     }}>
                       {r.dayLabel} {r.isToday && '· TODAY'}
                     </span>

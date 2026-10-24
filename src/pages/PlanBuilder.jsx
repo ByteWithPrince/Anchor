@@ -334,7 +334,7 @@ export default function PlanBuilder() {
               </p>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px' }}>
+            <div className="preset-splits-grid">
               {WORKOUT_PRESETS.map(preset => {
                 const isActive = activePresetId === preset.id;
                 const daysBreakdown = Object.entries(preset.schedule).filter(([, val]) => !val.isRest);
@@ -486,11 +486,11 @@ export default function PlanBuilder() {
                 </h2>
               </div>
 
-              {/* Day Pills Bar (Responsive Wrap - No Overflow Scrollbar) */}
+              {/* Day Pills Bar (Compact 7-Column Grid on Mobile and Desktop) */}
               <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '8px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, 1fr)',
+                gap: '6px',
                 marginBottom: '24px'
               }}>
                 {days.map((d, i) => {
@@ -501,24 +501,35 @@ export default function PlanBuilder() {
                       key={d}
                       onClick={() => setActiveDay(i)}
                       style={{
-                        padding: '12px 18px',
-                        borderRadius: '16px',
-                        background: isSelected ? '#FF7243' : isRest ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.08)',
-                        color: isSelected ? '#FFFFFF' : '#CCCCCC',
+                        padding: '10px 2px',
+                        borderRadius: '14px',
+                        background: isSelected ? '#10B981' : isRest ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.08)',
+                        color: isSelected ? '#0D0D0D' : '#CCCCCC',
                         border: isSelected ? 'none' : '1px solid rgba(255, 255, 255, 0.08)',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        gap: '4px',
-                        minWidth: '72px',
-                        flex: '1 1 0',
+                        justifyContent: 'center',
+                        gap: '3px',
+                        minWidth: 0,
+                        width: '100%',
                         boxShadow: 'none',
                         transition: 'all 0.2s ease',
                         cursor: 'pointer'
                       }}
                     >
-                      <span style={{ fontSize: '13px', fontWeight: '800' }}>{d}</span>
-                      <span style={{ fontSize: '10px', opacity: 0.7 }}>{isRest ? 'Rest' : schedule[i]?.name || 'Train'}</span>
+                      <span style={{ fontSize: '12px', fontWeight: '800' }}>{d}</span>
+                      <span style={{ 
+                        fontSize: '9px', 
+                        opacity: 0.75, 
+                        fontWeight: '600',
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis', 
+                        whiteSpace: 'nowrap', 
+                        maxWidth: '100%' 
+                      }}>
+                        {isRest ? 'Rest' : schedule[i]?.name || 'Train'}
+                      </span>
                     </button>
                   );
                 })}
@@ -615,12 +626,12 @@ export default function PlanBuilder() {
                           key={ex.id || idx}
                           className="glass-card-subtle"
                           style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 80px 80px 40px',
-                            gap: '10px',
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '8px',
                             alignItems: 'center',
                             background: 'rgba(255, 255, 255, 0.04)',
-                            padding: '12px 14px',
+                            padding: '10px 12px',
                             borderRadius: '14px',
                             border: '1px solid rgba(255, 255, 255, 0.08)'
                           }}
@@ -631,6 +642,8 @@ export default function PlanBuilder() {
                             onChange={e => updateExercise(idx, 'name', e.target.value)}
                             placeholder="Exercise name"
                             style={{
+                              flex: '1 1 130px',
+                              minWidth: '110px',
                               background: 'transparent',
                               border: 'none',
                               color: '#FFFFFF',
@@ -639,53 +652,66 @@ export default function PlanBuilder() {
                             }}
                           />
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <input
-                              type="number"
-                              value={ex.sets}
-                              onChange={e => updateExercise(idx, 'sets', e.target.value)}
-                              placeholder="Sets"
-                              style={{
-                                width: '100%',
-                                background: 'rgba(255, 255, 255, 0.06)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                textAlign: 'center',
-                                borderRadius: '8px',
-                                color: '#FFFFFF',
-                                fontSize: '13px',
-                                padding: '6px 0'
-                              }}
-                            />
-                            <span style={{ fontSize: '11px', color: '#8E8E93' }}>sets</span>
-                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '68px' }}>
+                              <input
+                                type="number"
+                                value={ex.sets}
+                                onChange={e => updateExercise(idx, 'sets', e.target.value)}
+                                placeholder="Sets"
+                                style={{
+                                  width: '100%',
+                                  background: 'rgba(255, 255, 255, 0.06)',
+                                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                                  textAlign: 'center',
+                                  borderRadius: '8px',
+                                  color: '#FFFFFF',
+                                  fontSize: '13px',
+                                  padding: '6px 0'
+                                }}
+                              />
+                              <span style={{ fontSize: '11px', color: '#8E8E93' }}>sets</span>
+                            </div>
 
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <input
-                              type="number"
-                              value={ex.reps}
-                              onChange={e => updateExercise(idx, 'reps', e.target.value)}
-                              placeholder="Reps"
-                              style={{
-                                width: '100%',
-                                background: 'rgba(255, 255, 255, 0.06)',
-                                border: '1px solid rgba(255, 255, 255, 0.08)',
-                                textAlign: 'center',
-                                borderRadius: '8px',
-                                color: '#FFFFFF',
-                                fontSize: '13px',
-                                padding: '6px 0'
-                              }}
-                            />
-                            <span style={{ fontSize: '11px', color: '#8E8E93' }}>reps</span>
-                          </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '68px' }}>
+                              <input
+                                type="number"
+                                value={ex.reps}
+                                onChange={e => updateExercise(idx, 'reps', e.target.value)}
+                                placeholder="Reps"
+                                style={{
+                                  width: '100%',
+                                  background: 'rgba(255, 255, 255, 0.06)',
+                                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                                  textAlign: 'center',
+                                  borderRadius: '8px',
+                                  color: '#FFFFFF',
+                                  fontSize: '13px',
+                                  padding: '6px 0'
+                                }}
+                              />
+                              <span style={{ fontSize: '11px', color: '#8E8E93' }}>reps</span>
+                            </div>
 
-                          <button
-                            onClick={() => removeExercise(idx)}
-                            aria-label="Remove exercise"
-                            style={{ color: '#8E8E93', opacity: 0.7, padding: '4px', textAlign: 'center', background: 'transparent', border: 'none', cursor: 'pointer' }}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                            <button
+                              onClick={() => removeExercise(idx)}
+                              aria-label="Remove exercise"
+                              style={{ 
+                                color: '#8E8E93', 
+                                opacity: 0.7, 
+                                padding: '6px', 
+                                textAlign: 'center', 
+                                background: 'transparent', 
+                                border: 'none', 
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -694,7 +720,7 @@ export default function PlanBuilder() {
               </div>
             </div>
 
-            {/* DAILY MACRO TARGETS */}
+            {/* DAILY MACRO TARGETS (2x2 Grid on Mobile) */}
             <div 
               className="glass-card"
               style={{
@@ -709,13 +735,13 @@ export default function PlanBuilder() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
-                <Target size={18} color="#00D09C" />
+                <Target size={18} color="#10B981" />
                 <h2 style={{ fontSize: '18px', fontWeight: '700', color: '#FFFFFF' }}>
                   Daily Nutrition Targets
                 </h2>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+              <div className="nutrition-targets-grid">
                 <div style={{ background: 'rgba(255, 255, 255, 0.04)', padding: '16px', borderRadius: '16px', border: '1px solid rgba(255, 255, 255, 0.08)', backdropFilter: 'blur(10px)' }}>
                   <label style={{ fontSize: '11px', fontWeight: '700', color: '#00D09C', textTransform: 'uppercase' }}>
                     Total Calories (kcal)
@@ -992,8 +1018,8 @@ export default function PlanBuilder() {
                       <div
                         key={ex.id || idx}
                         style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 70px 70px 36px',
+                          display: 'flex',
+                          flexWrap: 'wrap',
                           gap: '8px',
                           alignItems: 'center',
                           background: 'rgba(255, 255, 255, 0.04)',
@@ -1009,6 +1035,8 @@ export default function PlanBuilder() {
                           placeholder="Movement name"
                           list="popular-movements-list"
                           style={{
+                            flex: '1 1 120px',
+                            minWidth: '100px',
                             background: 'transparent',
                             border: 'none',
                             color: '#FFFFFF',
@@ -1017,50 +1045,62 @@ export default function PlanBuilder() {
                           }}
                         />
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <input
-                            type="number"
-                            value={ex.sets}
-                            onChange={e => handleUpdateNewRoutineExercise(idx, 'sets', Number(e.target.value) || 1)}
-                            style={{
-                              width: '100%',
-                              background: 'rgba(255, 255, 255, 0.07)',
-                              border: '1px solid rgba(255, 255, 255, 0.08)',
-                              textAlign: 'center',
-                              borderRadius: '6px',
-                              color: '#FFFFFF',
-                              fontSize: '12px',
-                              padding: '6px 0'
-                            }}
-                          />
-                          <span style={{ fontSize: '10px', color: '#8E8E93' }}>sets</span>
-                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: 'auto' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '64px' }}>
+                            <input
+                              type="number"
+                              value={ex.sets}
+                              onChange={e => handleUpdateNewRoutineExercise(idx, 'sets', Number(e.target.value) || 1)}
+                              style={{
+                                width: '100%',
+                                background: 'rgba(255, 255, 255, 0.07)',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                textAlign: 'center',
+                                borderRadius: '6px',
+                                color: '#FFFFFF',
+                                fontSize: '12px',
+                                padding: '6px 0'
+                              }}
+                            />
+                            <span style={{ fontSize: '10px', color: '#8E8E93' }}>sets</span>
+                          </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <input
-                            type="number"
-                            value={ex.reps}
-                            onChange={e => handleUpdateNewRoutineExercise(idx, 'reps', Number(e.target.value) || 1)}
-                            style={{
-                              width: '100%',
-                              background: 'rgba(255, 255, 255, 0.07)',
-                              border: '1px solid rgba(255, 255, 255, 0.08)',
-                              textAlign: 'center',
-                              borderRadius: '6px',
-                              color: '#FFFFFF',
-                              fontSize: '12px',
-                              padding: '6px 0'
-                            }}
-                          />
-                          <span style={{ fontSize: '10px', color: '#8E8E93' }}>reps</span>
-                        </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '64px' }}>
+                            <input
+                              type="number"
+                              value={ex.reps}
+                              onChange={e => handleUpdateNewRoutineExercise(idx, 'reps', Number(e.target.value) || 1)}
+                              style={{
+                                width: '100%',
+                                background: 'rgba(255, 255, 255, 0.07)',
+                                border: '1px solid rgba(255, 255, 255, 0.08)',
+                                textAlign: 'center',
+                                borderRadius: '6px',
+                                color: '#FFFFFF',
+                                fontSize: '12px',
+                                padding: '6px 0'
+                              }}
+                            />
+                            <span style={{ fontSize: '10px', color: '#8E8E93' }}>reps</span>
+                          </div>
 
-                        <button
-                          onClick={() => handleRemoveNewRoutineExercise(idx)}
-                          style={{ background: 'transparent', border: 'none', color: '#8E8E93', cursor: 'pointer', textAlign: 'center' }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                          <button
+                            onClick={() => handleRemoveNewRoutineExercise(idx)}
+                            aria-label="Remove exercise"
+                            style={{ 
+                              background: 'transparent', 
+                              border: 'none', 
+                              color: '#8E8E93', 
+                              cursor: 'pointer', 
+                              padding: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

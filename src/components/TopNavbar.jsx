@@ -48,14 +48,13 @@ export default function TopNavbar() {
   };
 
   return (
-    <header style={{
+    <header className="top-navbar-header" style={{
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '12px 0 28px 0',
+      padding: '12px 0 24px 0',
       width: '100%',
-      flexWrap: 'wrap',
-      gap: '16px'
+      gap: '12px'
     }}>
       {/* BRAND / LOGO */}
       <div 
@@ -65,14 +64,15 @@ export default function TopNavbar() {
           alignItems: 'center', 
           gap: '10px', 
           cursor: 'pointer',
-          userSelect: 'none'
+          userSelect: 'none',
+          flexShrink: 0
         }}
       >
         <div style={{
           width: '38px',
           height: '38px',
           borderRadius: '12px',
-          background: 'linear-gradient(135deg, #FF7243 0%, #FF9066 100%)',
+          background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -94,7 +94,7 @@ export default function TopNavbar() {
 
       {/* CENTER PILL NAVIGATION */}
       <nav 
-        className="glass-pill"
+        className="glass-pill desktop-nav-pill"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -167,14 +167,14 @@ export default function TopNavbar() {
       </nav>
 
       {/* RIGHT CONTROLS */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         {/* Search button with Hotkey and Instant Modal */}
         <button 
           aria-label="Search"
           title="Search (Cmd + K)"
           style={{
-            width: '40px',
-            height: '40px',
+            width: '38px',
+            height: '38px',
             borderRadius: '50%',
             background: 'rgba(255, 255, 255, 0.06)',
             border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -184,11 +184,12 @@ export default function TopNavbar() {
             justifyContent: 'center',
             color: '#FFFFFF',
             cursor: 'pointer',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            flexShrink: 0
           }}
           onClick={() => setSearchModalOpen(true)}
         >
-          <Search size={18} />
+          <Search size={17} />
         </button>
 
         {/* Cloud Sync / Auth Button */}
@@ -197,15 +198,16 @@ export default function TopNavbar() {
             display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            background: currentUser ? 'rgba(0, 208, 156, 0.12)' : 'rgba(255, 255, 255, 0.05)',
-            color: currentUser ? '#00D09C' : '#8E8E93',
-            border: `1px solid ${currentUser ? 'rgba(0, 208, 156, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
+            background: currentUser ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+            color: currentUser ? '#10B981' : '#8E8E93',
+            border: `1px solid ${currentUser ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
             fontWeight: '700',
             fontSize: '12px',
-            padding: '8px 14px',
+            padding: '8px 12px',
             borderRadius: '9999px',
             cursor: 'pointer',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            flexShrink: 0
           }}
           onClick={() => {
             if (currentUser) {
@@ -223,16 +225,16 @@ export default function TopNavbar() {
           ) : (
             <Cloud size={14} />
           )}
-          <span>{isCloudSyncing ? 'Syncing...' : currentUser ? 'Cloud Synced' : 'Cloud Sync'}</span>
+          <span className="sync-btn-text">{isCloudSyncing ? 'Syncing...' : currentUser ? 'Synced' : 'Sync'}</span>
         </button>
 
-        {/* Notification button */}
-        <div style={{ position: 'relative' }}>
+        {/* Notification button (Desktop only per prompt) */}
+        <div className="hide-on-mobile" style={{ position: 'relative' }}>
           <button 
             aria-label="Notifications"
             style={{
-              width: '40px',
-              height: '40px',
+              width: '38px',
+              height: '38px',
               borderRadius: '50%',
               background: 'rgba(255, 255, 255, 0.06)',
               border: '1px solid rgba(255, 255, 255, 0.12)',
@@ -244,7 +246,7 @@ export default function TopNavbar() {
               cursor: 'pointer'
             }}
           >
-            <Bell size={18} />
+            <Bell size={17} />
           </button>
           <span style={{
             position: 'absolute',
@@ -253,7 +255,7 @@ export default function TopNavbar() {
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: '#FF7243'
+            backgroundColor: '#10B981'
           }} />
         </div>
 
@@ -261,8 +263,8 @@ export default function TopNavbar() {
         <div 
           onClick={() => setProfileModalOpen(true)}
           style={{
-            width: '40px',
-            height: '40px',
+            width: '38px',
+            height: '38px',
             borderRadius: '50%',
             border: '2px solid rgba(255, 255, 255, 0.22)',
             overflow: 'hidden',
@@ -271,7 +273,8 @@ export default function TopNavbar() {
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            transition: 'transform 0.15s ease'
+            transition: 'transform 0.15s ease',
+            flexShrink: 0
           }}
           title="Switch Athlete Profile"
         >

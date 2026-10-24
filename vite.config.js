@@ -4,6 +4,8 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   server: {
+    host: true,
+    port: 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:5001',
@@ -34,8 +36,32 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,txt}']
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,txt,woff2}']
       }
     })
-  ]
+  ],
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalized = id.replace(/\\/g, '/');
+          if (
+            normalized.includes('/node_modules/react/') ||
+            normalized.includes('/node_modules/react-dom/') ||
+            normalized.includes('/node_modules/react-router/') ||
+            normalized.includes('/node_modules/react-router-dom/')
+          ) {
+            return 'react-vendor';
+          }
+          if (
+            normalized.includes('/node_modules/zustand/') ||
+            normalized.includes('/node_modules/idb-keyval/')
+          ) {
+            return 'state-vendor';
+          }
+        },
+      },
+    },
+  }
 })

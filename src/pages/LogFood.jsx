@@ -1,16 +1,27 @@
 import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore, getTodayStr } from '../store/useStore';
+import { useStore, getTodayStr, roundMacro } from '../store/useStore';
 import { ArrowLeft, Sparkles, CheckCircle2, Mic, MicOff, Search, Trash2, Utensils } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
 import { aiService } from '../services/aiService';
 import SEOHead from '../components/SEOHead';
 
+const DEFAULT_STAPLES = [
+  { name: 'Double Scoop Whey Protein', calories: 260, protein: 50, carbs: 6, fat: 3 },
+  { name: 'Chicken Breast & Jasmine Rice (200g)', calories: 480, protein: 54, carbs: 52, fat: 4 },
+  { name: '4 Whole Eggs & Sourdough Toast', calories: 420, protein: 26, carbs: 32, fat: 20 },
+  { name: 'Greek Yogurt (0%) & Wild Berries', calories: 210, protein: 24, carbs: 26, fat: 0 },
+  { name: 'Oatmeal, Peanut Butter & Banana', calories: 510, protein: 18, carbs: 74, fat: 16 },
+  { name: 'Lean Sirloin Steak & Sweet Potato', calories: 560, protein: 58, carbs: 42, fat: 14 },
+  { name: 'Avocado Toast & Boiled Eggs', calories: 380, protein: 18, carbs: 30, fat: 22 },
+  { name: 'Wild Salmon Fillet & Quinoa', calories: 520, protein: 46, carbs: 38, fat: 20 }
+];
+
 export default function LogFood() {
   const navigate = useNavigate();
   const addFoodLog = useStore(state => state.addFoodLog);
   const deleteFoodLog = useStore(state => state.deleteFoodLog);
-  const foodLogs = useStore(state => state.foodLogs) || [];
+  const foodLogs = useStore(state => state.foodLogs);
   const plan = useStore(state => state.plan);
   const targetCalories = plan?.macroTargets?.calories || 2500;
   const targetProtein = plan?.macroTargets?.protein || 160;
@@ -20,21 +31,10 @@ export default function LogFood() {
   
   const [recentFoods] = useState(() => getRecentFoods());
 
-  const defaultStaples = [
-    { name: 'Double Scoop Whey Protein', calories: 260, protein: 50, carbs: 6, fat: 3 },
-    { name: 'Chicken Breast & Jasmine Rice (200g)', calories: 480, protein: 54, carbs: 52, fat: 4 },
-    { name: '4 Whole Eggs & Sourdough Toast', calories: 420, protein: 26, carbs: 32, fat: 20 },
-    { name: 'Greek Yogurt (0%) & Wild Berries', calories: 210, protein: 24, carbs: 26, fat: 0 },
-    { name: 'Oatmeal, Peanut Butter & Banana', calories: 510, protein: 18, carbs: 74, fat: 16 },
-    { name: 'Lean Sirloin Steak & Sweet Potato', calories: 560, protein: 58, carbs: 42, fat: 14 },
-    { name: 'Avocado Toast & Boiled Eggs', calories: 380, protein: 18, carbs: 30, fat: 22 },
-    { name: 'Wild Salmon Fillet & Quinoa', calories: 520, protein: 46, carbs: 38, fat: 20 }
-  ];
-
   // Merge recent foods with athletic staples so there are always rich quick suggestions
   const displayedStaples = useMemo(() => {
     const combined = [...recentFoods];
-    for (const staple of defaultStaples) {
+    for (const staple of DEFAULT_STAPLES) {
       if (!combined.some(item => item.name?.toLowerCase() === staple.name.toLowerCase())) {
         combined.push(staple);
       }
@@ -50,6 +50,11 @@ export default function LogFood() {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef(null);
 
+  const [servingQty, setServingQty] = useState(1);
+  const [servingUnit, setServingUnit] = useState('serving');
+  const [isCountable, setIsCountable] = useState(true);
+  const [baseRef, setBaseRef] = useState(null);
+
   const [searchError, setSearchError] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [detectionSource, setDetectionSource] = useState(null);
@@ -62,6 +67,51 @@ export default function LogFood() {
   const yesterdayStr = getTodayStr(-1);
   const yesterdayFoods = foodLogs.filter(log => log.date === yesterdayStr);
 
+  // Sanitize numeric inputs to prevent leading zeros like '01.21'
+  const sanitizeNumberInput = (val) => {
+    if (val === '' || val === undefined || val === null) return '';
+    const str = String(val);
+    return str.replace(/^0+(?=\d)/, '');
+  };
+
+  // Live scaling when serving quantity / grams change
+  const handleServingQtyChange = (newQty) => {
+    const qty = Math.max(isCountable ? 0.5 : 10, Number(newQty) || (isCountable ? 1 : 50));
+    setServingQty(qty);
+
+    if (baseRef) {
+      let multiplier = 1;
+      if (isCountable) {
+        multiplier = qty / (baseRef.baseQty || 1);
+      } else {
+        multiplier = qty / (baseRef.baseQty || 100);
+      }
+      const newP = roundMacro((baseRef.protein || 0) * multiplier);
+      const newC = roundMacro((baseRef.carbs || 0) * multiplier);
+      const newF = roundMacro((baseRef.fat || 0) * multiplier);
+      const newCals = Math.round((newP * 4) + (newC * 4) + (newF * 9));
+
+      setFood(prev => ({
+        ...prev,
+        protein: sanitizeNumberInput(newP),
+        carbs: sanitizeNumberInput(newC),
+        fat: sanitizeNumberInput(newF),
+        calories: sanitizeNumberInput(newCals)
+      }));
+    }
+  };
+
+  // Automatically recalculate calories when user edits protein, carbs, or fat
+  const handleMacroChange = (field, val) => {
+    const sanitized = sanitizeNumberInput(val);
+    const updated = { ...food, [field]: sanitized };
+    const p = Number(field === 'protein' ? sanitized : food.protein) || 0;
+    const c = Number(field === 'carbs' ? sanitized : food.carbs) || 0;
+    const f = Number(field === 'fat' ? sanitized : food.fat) || 0;
+    updated.calories = sanitizeNumberInput(Math.round((p * 4) + (c * 4) + (f * 9)));
+    setFood(updated);
+  };
+
   // Today's food logs and totals
   const todayStr = getTodayStr();
   const todayFoods = useMemo(() => {
@@ -71,10 +121,10 @@ export default function LogFood() {
   const todayTotals = useMemo(() => {
     return todayFoods.reduce((acc, item) => {
       return {
-        calories: acc.calories + (Number(item.calories) || 0),
-        protein: acc.protein + (Number(item.protein) || 0),
-        carbs: acc.carbs + (Number(item.carbs) || 0),
-        fat: acc.fat + (Number(item.fat) || 0)
+        calories: roundMacro(acc.calories + (Number(item.calories) || 0)),
+        protein: roundMacro(acc.protein + (Number(item.protein) || 0)),
+        carbs: roundMacro(acc.carbs + (Number(item.carbs) || 0)),
+        fat: roundMacro(acc.fat + (Number(item.fat) || 0))
       };
     }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
   }, [todayFoods]);
@@ -91,14 +141,31 @@ export default function LogFood() {
       const resolved = await aiService.resolveFood(textToSearch);
 
       if (resolved && resolved.length > 0) {
-        if (resolved.length === 1 && (resolved[0].source === 'local' || resolved[0].source === 'ai')) {
+        if (resolved.length === 1) {
           const item = resolved[0];
-          setFood({
-            name: item.name,
+          const countable = item.baseRef?.isCountable !== undefined ? item.baseRef.isCountable : (item.unit !== 'g');
+          const initQty = item.quantity || (countable ? 1 : 100);
+          const initUnit = item.unit || (countable ? (item.baseRef?.defaultUnit || 'serving') : 'g');
+
+          setIsCountable(countable);
+          setServingQty(initQty);
+          setServingUnit(initUnit);
+          setBaseRef(item.baseRef || {
             calories: item.calories,
             protein: item.protein,
             carbs: item.carbs,
-            fat: item.fat
+            fat: item.fat,
+            baseQty: initQty,
+            isCountable: countable,
+            defaultUnit: initUnit
+          });
+
+          setFood({
+            name: item.name,
+            calories: sanitizeNumberInput(roundMacro(item.calories)),
+            protein: sanitizeNumberInput(roundMacro(item.protein || 0)),
+            carbs: sanitizeNumberInput(roundMacro(item.carbs || 0)),
+            fat: sanitizeNumberInput(roundMacro(item.fat || 0))
           });
           setDetectionSource(item.source);
           setShowForm(true);
@@ -167,27 +234,78 @@ export default function LogFood() {
   };
 
   const handleSelectResult = (item) => {
+    const countable = item.baseRef?.isCountable !== undefined ? item.baseRef.isCountable : (item.unit !== 'g');
+    const initQty = item.quantity || (countable ? 1 : 100);
+    const initUnit = item.unit || (countable ? (item.baseRef?.defaultUnit || 'serving') : 'g');
+
+    setIsCountable(countable);
+    setServingQty(initQty);
+    setServingUnit(initUnit);
+    setBaseRef(item.baseRef || {
+      calories: item.calories || item.caloriesPer100g,
+      protein: item.protein || item.proteinPer100g || 0,
+      carbs: item.carbs || item.carbsPer100g || 0,
+      fat: item.fat || item.fatPer100g || 0,
+      baseQty: initQty,
+      isCountable: countable,
+      defaultUnit: initUnit
+    });
+
     setFood({
       name: item.name,
-      calories: item.calories || item.caloriesPer100g,
-      protein: item.protein || 0,
-      carbs: item.carbs || 0,
-      fat: item.fat || 0
+      calories: sanitizeNumberInput(roundMacro(item.calories || item.caloriesPer100g)),
+      protein: sanitizeNumberInput(roundMacro(item.protein || item.proteinPer100g || 0)),
+      carbs: sanitizeNumberInput(roundMacro(item.carbs || item.carbsPer100g || 0)),
+      fat: sanitizeNumberInput(roundMacro(item.fat || item.fatPer100g || 0))
     });
     setDetectionSource(item.source || 'usda');
     setShowForm(true);
   };
 
   const handleQuickAdd = (f) => {
-    setFood({
-      name: f.name,
+    setIsCountable(true);
+    setServingQty(1);
+    setServingUnit('serving');
+    setBaseRef({
       calories: f.calories,
       protein: f.protein || 0,
       carbs: f.carbs || 0,
-      fat: f.fat || 0
+      fat: f.fat || 0,
+      baseQty: 1,
+      isCountable: true,
+      defaultUnit: 'serving'
+    });
+    setFood({
+      name: f.name,
+      calories: sanitizeNumberInput(roundMacro(f.calories)),
+      protein: sanitizeNumberInput(roundMacro(f.protein || 0)),
+      carbs: sanitizeNumberInput(roundMacro(f.carbs || 0)),
+      fat: sanitizeNumberInput(roundMacro(f.fat || 0))
     });
     setDetectionSource('recent');
     setShowForm(true);
+  };
+
+  const handleInstantLog = (itemToLog) => {
+    const target = itemToLog || food;
+    if (!target.name || !target.calories) return;
+    addFoodLog({
+      name: target.name.trim(),
+      calories: roundMacro(target.calories),
+      protein: roundMacro(target.protein || 0),
+      carbs: roundMacro(target.carbs || 0),
+      fat: roundMacro(target.fat || 0),
+      source: target.source || detectionSource || 'instant'
+    });
+    setSuccessData({ ...target });
+    setShowSuccess(true);
+    setShowForm(false);
+    setQuery('');
+    setSearchResults([]);
+    setFood({ name: '', calories: '', protein: '', carbs: '', fat: '' });
+    setTimeout(() => {
+      setShowSuccess(false);
+    }, 3500);
   };
 
   const handleCopyYesterdayFoods = () => {
@@ -195,14 +313,14 @@ export default function LogFood() {
     for (const item of yesterdayFoods) {
       addFoodLog({
         name: item.name,
-        calories: Number(item.calories) || 0,
-        protein: Number(item.protein) || 0,
-        carbs: Number(item.carbs) || 0,
-        fat: Number(item.fat) || 0,
+        calories: roundMacro(item.calories),
+        protein: roundMacro(item.protein),
+        carbs: roundMacro(item.carbs),
+        fat: roundMacro(item.fat),
         source: 'copy-yesterday'
       });
     }
-    setSuccessData({ name: `${yesterdayFoods.length} Staple Foods Cloned`, calories: yesterdayFoods.reduce((a, b) => a + (Number(b.calories) || 0), 0) });
+    setSuccessData({ name: `${yesterdayFoods.length} Staple Foods Cloned`, calories: roundMacro(yesterdayFoods.reduce((a, b) => a + (Number(b.calories) || 0), 0)) });
     setShowSuccess(true);
     setTimeout(() => {
       setShowSuccess(false);
@@ -212,11 +330,11 @@ export default function LogFood() {
   const handleSave = () => {
     if (!food.name || !food.calories) return;
     addFoodLog({
-      name: food.name,
-      calories: Number(food.calories) || 0,
-      protein: Number(food.protein) || 0,
-      carbs: Number(food.carbs) || 0,
-      fat: Number(food.fat) || 0,
+      name: food.name.trim(),
+      calories: roundMacro(food.calories),
+      protein: roundMacro(food.protein),
+      carbs: roundMacro(food.carbs),
+      fat: roundMacro(food.fat),
       source: detectionSource || 'manual'
     });
     setSuccessData({ ...food });
@@ -367,8 +485,8 @@ export default function LogFood() {
                       style={{
                         position: 'absolute',
                         right: '10px',
-                        background: '#FF7243',
-                        color: '#FFFFFF',
+                        background: '#10B981',
+                        color: '#0D0D0D',
                         width: '32px',
                         height: '32px',
                         borderRadius: '50%',
@@ -386,14 +504,14 @@ export default function LogFood() {
                 </form>
 
                 {isAnalyzing && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#00D09C', fontSize: '13px', marginTop: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10B981', fontSize: '13px', marginTop: '14px' }}>
                     <Sparkles size={16} />
                     <span>Analyzing natural language input & resolving macros...</span>
                   </div>
                 )}
 
                 {searchError && (
-                  <div style={{ color: '#FF7243', fontSize: '13px', marginTop: '14px' }}>
+                  <div style={{ color: '#EF4444', fontSize: '13px', marginTop: '14px' }}>
                     {searchError}
                   </div>
                 )}
@@ -421,17 +539,40 @@ export default function LogFood() {
                         cursor: 'pointer',
                         display: 'flex',
                         justifyContent: 'space-between',
-                        alignItems: 'center'
+                        alignItems: 'center',
+                        gap: '12px'
                       }}
                     >
-                      <div>
-                        <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF' }}>{item.name}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</div>
                         <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '2px' }}>
                           {item.protein || 0}g P · {item.carbs || 0}g C · {item.fat || 0}g F
                         </div>
                       </div>
-                      <div style={{ fontSize: '16px', fontWeight: '800', color: '#00D09C' }}>
-                        {item.calories} kcal
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: '800', color: '#10B981', whiteSpace: 'nowrap' }}>
+                          {item.calories} kcal
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleInstantLog(item);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '9999px',
+                            background: '#10B981',
+                            color: '#0D0D0D',
+                            fontSize: '11px',
+                            fontWeight: '800',
+                            border: 'none',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          + LOG
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -456,7 +597,7 @@ export default function LogFood() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <Utensils size={16} color="#00D09C" />
+                      <Utensils size={16} color="#10B981" />
                       <h2 style={{ fontSize: '16px', fontWeight: '800', color: '#FFFFFF', margin: 0, letterSpacing: '-0.2px' }}>
                         Today's Fuel Log
                       </h2>
@@ -467,7 +608,7 @@ export default function LogFood() {
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#00D09C' }}>
+                    <div style={{ fontSize: '18px', fontWeight: '800', color: '#10B981' }}>
                       {todayTotals.calories} <span style={{ fontSize: '12px', color: '#8E8E93', fontWeight: '500' }}>/ {targetCalories} kcal</span>
                     </div>
                   </div>
@@ -485,7 +626,7 @@ export default function LogFood() {
                   <div style={{
                     width: `${Math.min(100, Math.round((todayTotals.calories / (targetCalories || 2500)) * 100))}%`,
                     height: '100%',
-                    backgroundColor: '#00D09C',
+                    backgroundColor: '#10B981',
                     borderRadius: '9999px',
                     transition: 'width 0.4s ease'
                   }} />
@@ -494,7 +635,7 @@ export default function LogFood() {
                 {/* Macro breakdown pills */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
                   gap: '8px',
                   marginBottom: '18px'
                 }}>
@@ -590,13 +731,13 @@ export default function LogFood() {
                             )}
                           </div>
                           <div style={{ fontSize: '11px', color: '#8E8E93', marginTop: '2px' }}>
-                            {log.protein || 0}g P · {log.carbs || 0}g C · {log.fat || 0}g F
+                            {roundMacro(log.protein)}g P · {roundMacro(log.carbs)}g C · {roundMacro(log.fat)}g F
                           </div>
                         </div>
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <span style={{ fontSize: '15px', fontWeight: '800', color: '#00D09C', whiteSpace: 'nowrap' }}>
-                            +{log.calories} kcal
+                            +{roundMacro(log.calories)} kcal
                           </span>
                           <button
                             onClick={() => deleteFoodLog(log.id)}
@@ -792,21 +933,159 @@ export default function LogFood() {
                 />
               </div>
 
+              {/* Interactive Quantity / Serving Control */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '16px',
+                padding: '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#10B981', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    {isCountable ? `Serving Quantity (${servingUnit || 'units'})` : `Portion Weight (${servingUnit || 'g'})`}
+                  </label>
+                  <span style={{ fontSize: '12px', color: '#8E8E93' }}>
+                    Auto-calculates macros & calories
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {/* Stepper [-] */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const step = isCountable ? 1 : 25;
+                      const min = isCountable ? 1 : 25;
+                      handleServingQtyChange(Math.max(min, Number(servingQty) - step));
+                    }}
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '12px',
+                      background: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#FFFFFF',
+                      fontSize: '18px',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    -
+                  </button>
+
+                  {/* Current Qty Display / Input */}
+                  <div style={{
+                    flex: 1,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 12px',
+                    height: '42px'
+                  }}>
+                    <input
+                      type="number"
+                      min={isCountable ? 1 : 10}
+                      step={isCountable ? 1 : 10}
+                      value={servingQty}
+                      onChange={e => handleServingQtyChange(sanitizeNumberInput(e.target.value))}
+                      style={{
+                        width: '70px',
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#10B981',
+                        fontSize: '20px',
+                        fontWeight: '800',
+                        textAlign: 'center',
+                        outline: 'none'
+                      }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: '700', color: '#8E8E93', marginLeft: '4px' }}>
+                      {isCountable ? (servingUnit && servingUnit !== 'whole' ? servingUnit : 'qty') : 'g'}
+                    </span>
+                  </div>
+
+                  {/* Stepper [+] */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const step = isCountable ? 1 : 25;
+                      handleServingQtyChange(Number(servingQty) + step);
+                    }}
+                    style={{
+                      width: '42px',
+                      height: '42px',
+                      borderRadius: '12px',
+                      background: 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      color: '#FFFFFF',
+                      fontSize: '18px',
+                      fontWeight: '800',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* Quick Preset Pills */}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '2px' }}>
+                  {(isCountable ? [1, 2, 3, 4, 6] : [50, 100, 150, 200, 250, 300]).map((preset) => {
+                    const isSelected = Number(servingQty) === preset;
+                    return (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleServingQtyChange(preset)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '9999px',
+                          background: isSelected ? '#10B981' : 'rgba(255, 255, 255, 0.05)',
+                          border: `1px solid ${isSelected ? '#10B981' : 'rgba(255, 255, 255, 0.1)'}`,
+                          color: isSelected ? '#0D0D0D' : '#F3F4F6',
+                          fontSize: '12px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {preset}{!isCountable ? 'g' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div>
                 <label style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>
                   Calories (kcal)
                 </label>
                 <input
                   type="number"
+                  step="any"
+                  min="0"
                   value={food.calories}
-                  onChange={e => setFood({ ...food, calories: e.target.value })}
+                  onChange={e => setFood({ ...food, calories: sanitizeNumberInput(e.target.value) })}
                   style={{
                     width: '100%',
                     background: 'rgba(255, 255, 255, 0.05)',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
                     padding: '14px 18px',
                     borderRadius: '14px',
-                    color: '#00D09C',
+                    color: '#10B981',
                     fontSize: '24px',
                     fontWeight: '800',
                     marginTop: '6px'
@@ -814,15 +1093,17 @@ export default function LogFood() {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))', gap: '10px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#B2E040', textTransform: 'uppercase' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#10B981', textTransform: 'uppercase' }}>
                     Protein (g)
                   </label>
                   <input
                     type="number"
+                    step="any"
+                    min="0"
                     value={food.protein}
-                    onChange={e => setFood({ ...food, protein: e.target.value })}
+                    onChange={e => handleMacroChange('protein', e.target.value)}
                     style={{
                       width: '100%',
                       background: 'rgba(255, 255, 255, 0.05)',
@@ -838,13 +1119,15 @@ export default function LogFood() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#F4C767', textTransform: 'uppercase' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#F3F4F6', textTransform: 'uppercase' }}>
                     Carbs (g)
                   </label>
                   <input
                     type="number"
+                    step="any"
+                    min="0"
                     value={food.carbs}
-                    onChange={e => setFood({ ...food, carbs: e.target.value })}
+                    onChange={e => handleMacroChange('carbs', e.target.value)}
                     style={{
                       width: '100%',
                       background: 'rgba(255, 255, 255, 0.05)',
@@ -860,13 +1143,15 @@ export default function LogFood() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#FF7243', textTransform: 'uppercase' }}>
+                  <label style={{ fontSize: '11px', fontWeight: '700', color: '#8E8E93', textTransform: 'uppercase' }}>
                     Fat (g)
                   </label>
                   <input
                     type="number"
+                    step="any"
+                    min="0"
                     value={food.fat}
-                    onChange={e => setFood({ ...food, fat: e.target.value })}
+                    onChange={e => handleMacroChange('fat', e.target.value)}
                     style={{
                       width: '100%',
                       background: 'rgba(255, 255, 255, 0.05)',
@@ -882,12 +1167,12 @@ export default function LogFood() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <div style={{ display: 'flex', gap: '10px', marginTop: '16px', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
                   style={{
-                    flex: 1,
+                    flex: '1 1 80px',
                     background: 'rgba(255, 255, 255, 0.08)',
                     border: '1px solid rgba(255, 255, 255, 0.12)',
                     color: '#FFFFFF',
@@ -902,11 +1187,33 @@ export default function LogFood() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => handleInstantLog()}
+                  style={{
+                    flex: '1 1 120px',
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid rgba(16, 185, 129, 0.4)',
+                    color: '#10B981',
+                    padding: '14px',
+                    borderRadius: '9999px',
+                    fontSize: '13px',
+                    fontWeight: '800',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <Sparkles size={15} />
+                  INSTANT LOG
+                </button>
+                <button
+                  type="button"
                   onClick={handleSave}
                   style={{
-                    flex: 2,
-                    background: '#FF7243',
-                    color: '#FFFFFF',
+                    flex: '2 1 140px',
+                    background: '#10B981',
+                    color: '#0D0D0D',
                     padding: '14px',
                     borderRadius: '9999px',
                     fontSize: '14px',

@@ -1,6 +1,10 @@
 /**
  * Web Audio API Athletic Timer Synth (Zero-dependency, zero asset loading)
  */
+import { getAudioContext, unlockAudio } from './haptics.js';
+
+export { unlockAudio };
+
 class AudioService {
   constructor() {
     this.ctx = null;
@@ -8,12 +12,7 @@ class AudioService {
 
   init() {
     if (typeof window === 'undefined') return null;
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        this.ctx = new AudioCtx();
-      }
-    }
+    this.ctx = getAudioContext();
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume().catch(() => {});
     }

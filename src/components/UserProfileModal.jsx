@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { X, Check, UserPlus, Download, User, ShieldCheck, Cloud, LogOut, RefreshCw } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import DataArchiveModal from './DataArchiveModal';
 
 export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
   const navigate = useNavigate();
@@ -10,18 +11,25 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
   const activeProfileId = useStore(state => state.activeProfileId);
   const switchProfile = useStore(state => state.switchProfile);
   const createProfile = useStore(state => state.createProfile);
-  const exportData = useStore(state => state.exportData);
   const currentUser = useStore(state => state.currentUser);
   const logoutUser = useStore(state => state.logoutUser);
   const syncWithCloud = useStore(state => state.syncWithCloud);
   const isCloudSyncing = useStore(state => state.isCloudSyncing);
 
+  const workoutLogs = useStore(state => state.workoutLogs);
+  const foodLogs = useStore(state => state.foodLogs);
+  const plan = useStore(state => state.plan);
+  const customRoutines = useStore(state => state.customRoutines);
+  const weightLogs = useStore(state => state.weightLogs);
+  const cardioLogs = useStore(state => state.cardioLogs);
+  const hydrateFromArchive = useStore(state => state.hydrateFromArchive);
+
+  const [archiveModalOpen, setArchiveModalOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('Powerlifting');
   const [newWeight, setNewWeight] = useState('75');
   const [newCals, setNewCals] = useState('2500');
-  const [copiedNotification, setCopiedNotification] = useState(false);
 
   // Keyboard ESC listener to close modal immediately
   useEffect(() => {
@@ -50,28 +58,15 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
     setIsCreating(false);
   };
 
-  const handleExport = () => {
-    const jsonStr = exportData();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `anchor-backup-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    setCopiedNotification(true);
-    setTimeout(() => setCopiedNotification(false), 3000);
-  };
-
   return createPortal(
     <div
-      className="animate-fade-in"
+      className="modal-overlay animate-fade-in"
       style={{
         position: 'fixed',
         inset: 0,
         width: '100vw',
         height: '100vh',
-        background: 'rgba(0, 0, 0, 0.42)',
+        background: 'rgba(0, 0, 0, 0.55)',
         backdropFilter: 'blur(48px) saturate(200%)',
         WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         zIndex: 99999,
@@ -83,7 +78,7 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
       onClick={onClose}
     >
       <div
-        className="animate-scale-in"
+        className="modal-bottom-sheet glass-modal animate-scale-in"
         style={{
           width: '100%',
           maxWidth: '480px',
@@ -177,8 +172,8 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                       justifyContent: 'space-between',
                       padding: '14px 18px',
                       borderRadius: '16px',
-                      background: isActive ? 'rgba(255, 114, 67, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                      border: isActive ? '1px solid rgba(255, 114, 67, 0.5)' : '1px solid rgba(255, 255, 255, 0.06)',
+                      background: isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: isActive ? '1px solid rgba(16, 185, 129, 0.5)' : '1px solid rgba(255, 255, 255, 0.06)',
                       cursor: 'pointer',
                       transition: 'all 0.2s ease'
                     }}
@@ -191,7 +186,7 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                           width: '40px',
                           height: '40px',
                           borderRadius: '50%',
-                          border: isActive ? '2px solid #FF7243' : '2px solid rgba(255, 255, 255, 0.12)'
+                          border: isActive ? '2px solid #10B981' : '2px solid rgba(255, 255, 255, 0.12)'
                         }}
                       />
                       <div>
@@ -206,8 +201,8 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
 
                     {isActive && (
                       <div style={{
-                        background: '#FF7243',
-                        color: '#FFFFFF',
+                        background: '#10B981',
+                        color: '#0D0D0D',
                         width: '24px',
                         height: '24px',
                         borderRadius: '50%',
@@ -244,12 +239,12 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                   width: '34px',
                   height: '34px',
                   borderRadius: '10px',
-                  backgroundColor: currentUser ? 'rgba(0, 208, 156, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                  border: currentUser ? '1px solid rgba(0, 208, 156, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
+                  backgroundColor: currentUser ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                  border: currentUser ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(255, 255, 255, 0.08)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: currentUser ? '#00D09C' : '#8E8E93'
+                  color: currentUser ? '#10B981' : '#8E8E93'
                 }}>
                   <Cloud size={16} />
                 </div>
@@ -270,9 +265,9 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                     disabled={isCloudSyncing}
                     title="Sync with cloud"
                     style={{
-                      background: 'rgba(0, 208, 156, 0.15)',
-                      color: '#00D09C',
-                      border: '1px solid rgba(0, 208, 156, 0.3)',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      color: '#10B981',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
                       borderRadius: '8px',
                       padding: '6px 10px',
                       fontSize: '11px',
@@ -294,9 +289,9 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                     }}
                     title="Sign out of cloud"
                     style={{
-                      background: 'rgba(255, 114, 67, 0.12)',
-                      color: '#FF7243',
-                      border: '1px solid rgba(255, 114, 67, 0.25)',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: '#EF4444',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
                       borderRadius: '8px',
                       padding: '6px 8px',
                       cursor: 'pointer',
@@ -314,7 +309,7 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                     if (onOpenAuth) onOpenAuth();
                   }}
                   style={{
-                    background: '#00D09C',
+                    background: '#10B981',
                     color: '#0D0D0D',
                     border: 'none',
                     borderRadius: '10px',
@@ -356,7 +351,7 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
               </button>
 
               <button
-                onClick={handleExport}
+                onClick={() => setArchiveModalOpen(true)}
                 style={{
                   flex: 1,
                   background: 'rgba(255, 255, 255, 0.06)',
@@ -375,7 +370,7 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                 }}
               >
                 <Download size={16} />
-                <span>{copiedNotification ? 'Exported!' : 'Export JSON'}</span>
+                <span>Data Archive</span>
               </button>
             </div>
           </>
@@ -498,8 +493,8 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
                 type="submit"
                 style={{
                   flex: 1,
-                  background: '#FF7243',
-                  color: '#FFFFFF',
+                  background: '#10B981',
+                  color: '#0D0D0D',
                   fontWeight: '800',
                   padding: '12px',
                   borderRadius: '12px',
@@ -514,6 +509,19 @@ export default function UserProfileModal({ isOpen, onClose, onOpenAuth }) {
             </div>
           </form>
         )}
+        <DataArchiveModal
+          isOpen={archiveModalOpen}
+          onClose={() => setArchiveModalOpen(false)}
+          storeState={{
+            workouts: workoutLogs,
+            nutritionLogs: foodLogs,
+            trainingPlan: plan,
+            customRoutines: customRoutines,
+            bodyweightLogs: weightLogs,
+            gpsTelemetry: cardioLogs
+          }}
+          onHydrateStore={(data) => hydrateFromArchive(data)}
+        />
       </div>
     </div>,
     document.body

@@ -173,14 +173,14 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
 
   return createPortal(
     <div 
-      className="animate-fade-in"
+      className="modal-overlay animate-fade-in"
       onClick={onClose}
       style={{
         position: 'fixed',
         inset: 0,
         width: '100vw',
         height: '100vh',
-        backgroundColor: 'rgba(0, 0, 0, 0.42)',
+        backgroundColor: 'rgba(0, 0, 0, 0.55)',
         backdropFilter: 'blur(48px) saturate(200%)',
         WebkitBackdropFilter: 'blur(48px) saturate(200%)',
         display: 'flex',
@@ -197,8 +197,8 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
         height: '420px',
         borderRadius: '50%',
         background: mode === 'login'
-          ? 'radial-gradient(circle, rgba(0, 208, 156, 0.28) 0%, rgba(99, 102, 241, 0.15) 50%, transparent 70%)'
-          : 'radial-gradient(circle, rgba(255, 114, 67, 0.28) 0%, rgba(178, 224, 64, 0.15) 50%, transparent 70%)',
+          ? 'radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(99, 102, 241, 0.15) 50%, transparent 70%)'
+          : 'radial-gradient(circle, rgba(16, 185, 129, 0.28) 0%, rgba(178, 224, 64, 0.15) 50%, transparent 70%)',
         filter: 'blur(50px)',
         pointerEvents: 'none',
         zIndex: 0,
@@ -206,7 +206,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
       }} />
 
       <div 
-        className="glass-modal animate-scale-in"
+        className="modal-bottom-sheet glass-modal animate-scale-in"
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%',
