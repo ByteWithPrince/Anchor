@@ -11,10 +11,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
   const todayStr = getTodayStr();
 
   // Targets
-  const targetCalories = Number(plan?.macroTargets?.calories) || 2100;
-  const targetProtein = Number(plan?.macroTargets?.protein) || 180;
-  const targetCarbs = Number(plan?.macroTargets?.carbs) || 182;
-  const targetFat = Number(plan?.macroTargets?.fat) || 65;
+  const targetCalories = Number(plan?.macroTargets?.calories) || 2500;
+  const targetProtein = Number(plan?.macroTargets?.protein) || 160;
+  const targetCarbs = Number(plan?.macroTargets?.carbs) || 280;
+  const targetFat = Number(plan?.macroTargets?.fat) || 75;
 
   // Daily logs
   const todayFoods = foodLogs.filter(f => f.date === todayStr);
@@ -44,7 +44,13 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
 
   const unitText = filter === 'Daily' ? 'Today' : 'Daily avg';
 
-  // 4 Macro Rows (Calories, Carbs, Fat, Protein)
+  // Calculate raw uncapped percentages
+  const calPercent = targetCalories > 0 ? Math.round((currentCalories / targetCalories) * 100) : 0;
+  const carbsPercent = targetCarbs > 0 ? Math.round((currentCarbs / targetCarbs) * 100) : 0;
+  const fatPercent = targetFat > 0 ? Math.round((currentFat / targetFat) * 100) : 0;
+  const proteinPercent = targetProtein > 0 ? Math.round((currentProtein / targetProtein) * 100) : 0;
+
+  // 4 Macro Rows (Calories, Carbs, Fat, Protein) with clean integer goals and uncapped percentages
   const rows = [
     {
       id: 'cal',
@@ -53,8 +59,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
       color: '#00D09C',
       intake: currentCalories > 0 ? `${currentCalories} kcal` : '0 kcal',
       unit: unitText,
-      goal: `${targetCalories}.00`,
-      pct: `${Math.min(100, Math.round((currentCalories / targetCalories) * 100))}%`
+      goal: `${Math.round(targetCalories)} kcal Goal`,
+      rawPercent: calPercent,
+      pct: `${calPercent}%`,
+      barWidth: Math.min(100, Math.max(0, calPercent))
     },
     {
       id: 'carbs',
@@ -63,8 +71,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
       color: '#F4C767',
       intake: currentCarbs > 0 ? `${currentCarbs} g` : '0 g',
       unit: unitText,
-      goal: `${targetCarbs}.00`,
-      pct: `${Math.min(100, Math.round((currentCarbs / targetCarbs) * 100))}%`
+      goal: `${Math.round(targetCarbs)}g Goal`,
+      rawPercent: carbsPercent,
+      pct: `${carbsPercent}%`,
+      barWidth: Math.min(100, Math.max(0, carbsPercent))
     },
     {
       id: 'fat',
@@ -73,8 +83,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
       color: '#FF7243',
       intake: currentFat > 0 ? `${currentFat} g` : '0 g',
       unit: unitText,
-      goal: `${targetFat}.00`,
-      pct: `${Math.min(100, Math.round((currentFat / targetFat) * 100))}%`
+      goal: `${Math.round(targetFat)}g Goal`,
+      rawPercent: fatPercent,
+      pct: `${fatPercent}%`,
+      barWidth: Math.min(100, Math.max(0, fatPercent))
     },
     {
       id: 'protein',
@@ -83,8 +95,10 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
       color: '#B2E040',
       intake: currentProtein > 0 ? `${currentProtein} g` : '0 g',
       unit: unitText,
-      goal: `${targetProtein}.00`,
-      pct: `${Math.min(100, Math.round((currentProtein / targetProtein) * 100))}%`
+      goal: `${Math.round(targetProtein)}g Goal`,
+      rawPercent: proteinPercent,
+      pct: `${proteinPercent}%`,
+      barWidth: Math.min(100, Math.max(0, proteinPercent))
     }
   ];
 
@@ -252,17 +266,18 @@ export default function CalorieAnalysisCard({ dragHandleProps }) {
                   letterSpacing: '0.2px',
                   whiteSpace: 'nowrap'
                 }}>
-                  {row.goal} Goal
+                  {row.goal}
                 </span>
               </div>
 
-              {/* Col 4: Completion Percentage */}
+              {/* Col 4: Completion Percentage (True Uncapped >100% in #FF7243) */}
               <div style={{
                 fontSize: '13px',
                 fontWeight: '700',
-                color: '#FFFFFF',
+                color: row.rawPercent > 100 ? '#FF7243' : '#FFFFFF',
                 textAlign: 'right',
-                minWidth: '45px'
+                minWidth: '45px',
+                transition: 'color 0.2s ease'
               }}>
                 {row.pct}
               </div>

@@ -318,8 +318,16 @@ input.box-input:focus {
   gap: 28px;
 }
 
+.logfood-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.95fr);
+  gap: 24px;
+  align-items: start;
+}
+
 @media (max-width: 900px) {
-  .split-panel-2col {
+  .split-panel-2col,
+  .logfood-grid {
     grid-template-columns: 1fr !important;
     gap: 20px !important;
   }

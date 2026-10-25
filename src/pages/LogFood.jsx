@@ -1,6 +1,6 @@
 import { useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useStore, getTodayStr, roundMacro } from '../store/useStore';
+import { useStore, getTodayStr, roundMacro, sanitizeFoodItem } from '../store/useStore';
 import { ArrowLeft, Sparkles, CheckCircle2, Mic, MicOff, Search, Trash2, Utensils } from 'lucide-react';
 import TopNavbar from '../components/TopNavbar';
 import { aiService } from '../services/aiService';
@@ -62,10 +62,13 @@ export default function LogFood() {
   const [showForm, setShowForm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [successData, setSuccessData] = useState(null);
+  const [copiedYesterday, setCopiedYesterday] = useState(false);
 
   // Yesterday's food logs for 1-tap staple duplication
   const yesterdayStr = getTodayStr(-1);
-  const yesterdayFoods = foodLogs.filter(log => log.date === yesterdayStr);
+  const yesterdayFoods = useMemo(() => {
+    return (foodLogs || []).filter(log => log.date === yesterdayStr).map(item => sanitizeFoodItem(item));
+  }, [foodLogs, yesterdayStr]);
 
   // Sanitize numeric inputs to prevent leading zeros like '01.21'
   const sanitizeNumberInput = (val) => {
@@ -309,8 +312,22 @@ export default function LogFood() {
   };
 
   const handleCopyYesterdayFoods = () => {
-    if (yesterdayFoods.length === 0) return;
-    for (const item of yesterdayFoods) {
+    if (yesterdayFoods.length === 0 || copiedYesterday) return;
+
+    // Check existing meals logged today to prevent duplicate cloning
+    const existingNames = new Set(todayFoods.map(f => (f.name || '').trim().toLowerCase()));
+    let clonedCount = 0;
+    let addedCalories = 0;
+
+    for (const rawItem of yesterdayFoods) {
+      const item = sanitizeFoodItem(rawItem);
+      const nameKey = item.name.toLowerCase();
+      if (existingNames.has(nameKey)) continue;
+
+      existingNames.add(nameKey);
+      clonedCount++;
+      addedCalories += item.calories;
+
       addFoodLog({
         name: item.name,
         calories: roundMacro(item.calories),
@@ -320,11 +337,19 @@ export default function LogFood() {
         source: 'copy-yesterday'
       });
     }
-    setSuccessData({ name: `${yesterdayFoods.length} Staple Foods Cloned`, calories: roundMacro(yesterdayFoods.reduce((a, b) => a + (Number(b.calories) || 0), 0)) });
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-    }, 3500);
+
+    setCopiedYesterday(true);
+
+    if (clonedCount > 0) {
+      setSuccessData({
+        name: `${clonedCount} Staple Foods Cloned`,
+        calories: roundMacro(addedCalories)
+      });
+      setShowSuccess(true);
+      setTimeout(() => {
+        setShowSuccess(false);
+      }, 3500);
+    }
   };
 
   const handleSave = () => {
@@ -418,8 +443,14 @@ export default function LogFood() {
         </div>
 
         {!showForm ? (
-          <div className="split-panel-2col">
-            <div>
+          <div className="logfood-grid" style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(0, 1.35fr) minmax(320px, 0.95fr)',
+            gap: '24px',
+            alignItems: 'start',
+            width: '100%'
+          }}>
+            <div style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
               {/* Search Box Card */}
               <div 
                 className="glass-card"
@@ -708,12 +739,24 @@ export default function LogFood() {
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
-                          transition: 'background 0.15s ease'
+                          transition: 'background 0.15s ease',
+                          minWidth: 0,
+                          maxWidth: '100%',
+                          overflow: 'hidden'
                         }}
                       >
-                        <div style={{ flex: 1, minWidth: 0, paddingRight: '10px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <span style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ flex: 1, minWidth: 0, paddingRight: '10px', overflow: 'hidden' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span style={{
+                              fontSize: '14px',
+                              fontWeight: '700',
+                              color: '#FFFFFF',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '100%',
+                              display: 'block'
+                            }}>
                               {log.name}
                             </span>
                             {log.source && (
@@ -724,7 +767,8 @@ export default function LogFood() {
                                 padding: '2px 6px',
                                 borderRadius: '4px',
                                 background: log.source === 'ai' ? 'rgba(0, 208, 156, 0.12)' : 'rgba(255, 255, 255, 0.06)',
-                                color: log.source === 'ai' ? '#00D09C' : '#8E8E93'
+                                color: log.source === 'ai' ? '#00D09C' : '#8E8E93',
+                                flexShrink: 0
                               }}>
                                 {log.source}
                               </span>
@@ -735,7 +779,7 @@ export default function LogFood() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
                           <span style={{ fontSize: '15px', fontWeight: '800', color: '#00D09C', whiteSpace: 'nowrap' }}>
                             +{roundMacro(log.calories)} kcal
                           </span>
@@ -767,7 +811,7 @@ export default function LogFood() {
               </div>
             </div>
 
-            <div>
+            <div style={{ minWidth: 0, maxWidth: '100%', overflow: 'hidden' }}>
               {/* Copy Yesterday's Foods Shortcut */}
               {yesterdayFoods.length > 0 && (
                 <div 
@@ -783,11 +827,12 @@ export default function LogFood() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    marginBottom: '24px'
+                    marginBottom: '24px',
+                    gap: '12px'
                   }}
                 >
-                  <div>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#FFFFFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       Copy Yesterday's Meal Staples
                     </div>
                     <div style={{ fontSize: '12px', color: '#8E8E93', marginTop: '2px' }}>
@@ -797,18 +842,22 @@ export default function LogFood() {
 
                   <button
                     onClick={handleCopyYesterdayFoods}
+                    disabled={copiedYesterday}
                     style={{
-                      background: 'rgba(255, 114, 67, 0.15)',
-                      border: '1px solid rgba(255, 114, 67, 0.4)',
-                      color: '#FF7243',
+                      background: copiedYesterday ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 114, 67, 0.15)',
+                      border: copiedYesterday ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 114, 67, 0.4)',
+                      color: copiedYesterday ? '#10B981' : '#FF7243',
                       padding: '8px 16px',
                       borderRadius: '9999px',
                       fontSize: '12px',
                       fontWeight: '800',
-                      cursor: 'pointer'
+                      cursor: copiedYesterday ? 'default' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap'
                     }}
                   >
-                    COPY ALL
+                    {copiedYesterday ? 'Copied ✓' : 'COPY ALL'}
                   </button>
                 </div>
               )}

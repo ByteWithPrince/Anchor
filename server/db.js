@@ -61,6 +61,8 @@ export function initDatabase() {
   try { db.exec(`ALTER TABLE users ADD COLUMN updated_at INTEGER;`); } catch (e) {}
   try { db.exec(`ALTER TABLE users ADD COLUMN google_id TEXT;`); } catch (e) {}
   try { db.exec(`ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 1;`); } catch (e) {}
+  try { db.exec(`ALTER TABLE refresh_tokens ADD COLUMN revoked_at INTEGER DEFAULT NULL;`); } catch (e) {}
+  try { db.exec(`ALTER TABLE refresh_tokens ADD COLUMN replaced_by TEXT DEFAULT NULL;`); } catch (e) {}
 
   db.exec(`
 
@@ -194,6 +196,8 @@ export function initDatabase() {
       ip_address TEXT,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
+      revoked_at INTEGER DEFAULT NULL,
+      replaced_by TEXT DEFAULT NULL,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 

@@ -85,7 +85,7 @@ export default function Home() {
   const todayStr = getTodayStr();
   const todayFoods = foodLogs.filter(log => log.date === todayStr);
   
-  const targetCalories = Number(plan?.macroTargets?.calories) || 2000;
+  const targetCalories = Number(plan?.macroTargets?.calories) || 2500;
   const totalCalories = roundMacro(todayFoods.reduce((acc, curr) => acc + (Number(curr.calories) || 0), 0));
   const netDelta = roundMacro(targetCalories - totalCalories);
 

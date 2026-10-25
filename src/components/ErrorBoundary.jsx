@@ -18,6 +18,27 @@ export default class ErrorBoundary extends React.Component {
     window.location.reload();
   };
 
+  handleResetCacheAndReload = async () => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+        if (window.indexedDB && window.indexedDB.databases) {
+          const dbs = await window.indexedDB.databases();
+          for (const db of dbs) {
+            if (db.name) window.indexedDB.deleteDatabase(db.name);
+          }
+        } else if (window.indexedDB) {
+          window.indexedDB.deleteDatabase('keyval-store');
+          window.indexedDB.deleteDatabase('anchor-storage-v3');
+        }
+      }
+    } catch (e) {
+      console.warn('Cache purge error:', e);
+    }
+    window.location.href = '/';
+  };
+
   render() {
     if (this.state.hasError) {
       return (
@@ -52,31 +73,69 @@ export default class ErrorBoundary extends React.Component {
             SOMETHING WENT WRONG
           </h1>
           <p style={{
-            fontSize: '16px',
+            fontSize: '15px',
             color: 'var(--text-color, #F3F4F6)',
-            opacity: 0.6,
-            maxWidth: '360px',
+            opacity: 0.65,
+            maxWidth: '460px',
             lineHeight: 1.5,
-            marginBottom: '40px'
+            marginBottom: '20px'
           }}>
-            An unexpected error occurred. Your data stored locally remains safe.
+            An unexpected error occurred. Your local data remains safe.
           </p>
-          <button
-            onClick={this.handleReload}
-            style={{
-              backgroundColor: 'var(--primary-color, #10B981)',
-              color: '#000000',
-              border: 'none',
-              padding: '16px 32px',
-              fontSize: '14px',
-              fontWeight: '700',
-              letterSpacing: '1px',
-              cursor: 'pointer',
-              textTransform: 'uppercase'
-            }}
-          >
-            RELOAD APPLICATION
-          </button>
+
+          {this.state.error?.message && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '12px',
+              padding: '12px 18px',
+              fontFamily: 'monospace',
+              fontSize: '12px',
+              color: '#FF8A8A',
+              maxWidth: '520px',
+              wordBreak: 'break-word',
+              marginBottom: '32px'
+            }}>
+              {this.state.error.message}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              onClick={this.handleReload}
+              style={{
+                backgroundColor: 'var(--primary-color, #10B981)',
+                color: '#000000',
+                border: 'none',
+                padding: '14px 28px',
+                fontSize: '13px',
+                fontWeight: '800',
+                letterSpacing: '0.5px',
+                cursor: 'pointer',
+                borderRadius: '12px',
+                textTransform: 'uppercase'
+              }}
+            >
+              RELOAD APPLICATION
+            </button>
+
+            <button
+              onClick={this.handleResetCacheAndReload}
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.12)',
+                color: '#EF4444',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                padding: '14px 24px',
+                fontSize: '13px',
+                fontWeight: '700',
+                letterSpacing: '0.5px',
+                cursor: 'pointer',
+                borderRadius: '12px'
+              }}
+            >
+              Reset Local Cache & Reload
+            </button>
+          </div>
         </div>
       );
     }

@@ -7,11 +7,15 @@ import {
   CalendarDays, 
   Bookmark 
 } from 'lucide-react';
+import { useStore } from '../store/useStore';
 
 export default function Navigation() {
   const location = useLocation();
+  const authToken = useStore(state => state.authToken);
+  const isSessionUnlocked = typeof window !== 'undefined' && sessionStorage.getItem('anchor_session_unlocked') === 'true';
 
   const hiddenRoutes = [
+    '/',
     '/landing',
     '/welcome',
     '/privacy',
@@ -19,7 +23,7 @@ export default function Navigation() {
     '/thank-you'
   ];
   
-  if (hiddenRoutes.includes(location.pathname)) {
+  if (hiddenRoutes.includes(location.pathname) || !authToken || !isSessionUnlocked) {
     return null;
   }
 
@@ -30,7 +34,7 @@ export default function Navigation() {
       to: '/dashboard',
       label: 'Dashboard',
       icon: LayoutDashboard,
-      isActive: currentPath === '/dashboard' || currentPath === '/'
+      isActive: currentPath === '/dashboard'
     },
     {
       to: '/statistics',

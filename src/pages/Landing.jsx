@@ -18,7 +18,8 @@ export default function Landing() {
   const [authModalMode, setAuthModalMode] = useState('register'); // 'login' | 'register'
   const currentUser = useStore(state => state.currentUser);
   const authToken = useStore(state => state.authToken);
-  const isAuthenticated = Boolean(currentUser && authToken);
+  const isSessionUnlocked = typeof window !== 'undefined' && sessionStorage.getItem('anchor_session_unlocked') === 'true';
+  const isAuthenticated = Boolean(currentUser && authToken && isSessionUnlocked);
 
   const handleOpenAuth = (mode = 'register') => {
     if (isAuthenticated) {
@@ -100,7 +101,7 @@ export default function Landing() {
             }}>
               <AnchorIcon size={20} strokeWidth={2.6} />
             </div>
-            <span style={{ fontSize: '20px', fontWeight: '900', letterSpacing: '1px' }}>
+            <span style={{ fontSize: '20px', fontWeight: '800', letterSpacing: '1px', color: '#FF7243' }}>
               ANCHOR
             </span>
           </div>
@@ -615,7 +616,7 @@ export default function Landing() {
             }}>
               <AnchorIcon size={16} strokeWidth={2.6} />
             </div>
-            <span style={{ fontSize: '16px', fontWeight: '900', color: '#FFFFFF', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: '16px', fontWeight: '800', color: '#FF7243', letterSpacing: '0.5px' }}>
               ANCHOR FITNESS OS
             </span>
           </div>

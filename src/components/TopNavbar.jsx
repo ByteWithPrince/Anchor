@@ -21,7 +21,7 @@ export default function TopNavbar() {
   const [hoveredTab, setHoveredTab] = useState(null);
 
   const path = location.pathname;
-  const isDashboardActive = path === '/dashboard' || (path === '/' && currentUser);
+  const isDashboardActive = path === '/dashboard';
   const isStatsActive = path === '/progress' || path === '/statistics';
   const isWorkoutsActive = ['/workout-overview', '/log-workout', '/workout-complete', '/workouts'].includes(path);
   const isNutritionActive = path === '/log-food' || path === '/nutrition';
@@ -58,7 +58,7 @@ export default function TopNavbar() {
     }}>
       {/* BRAND / LOGO */}
       <div 
-        onClick={() => navigate(currentUser ? '/dashboard' : '/')} 
+        onClick={() => navigate('/dashboard')} 
         style={{ 
           display: 'flex', 
           alignItems: 'center', 
@@ -72,20 +72,20 @@ export default function TopNavbar() {
           width: '38px',
           height: '38px',
           borderRadius: '12px',
-          background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+          background: 'linear-gradient(135deg, #FF7243 0%, #FF8F6B 100%)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           color: '#FFFFFF',
-          boxShadow: 'none'
+          boxShadow: '0 4px 14px rgba(255, 114, 67, 0.35)'
         }}>
           <AnchorIcon size={20} strokeWidth={2.6} />
         </div>
         <span style={{
           fontSize: '22px',
-          fontWeight: '900',
+          fontWeight: '800',
           letterSpacing: '1px',
-          color: '#FFFFFF',
+          color: '#FF7243',
           fontFamily: "'Space Grotesk', sans-serif"
         }}>
           ANCHOR
@@ -216,7 +216,7 @@ export default function TopNavbar() {
               setAuthModalOpen(true);
             }
           }}
-          title={currentUser ? `Signed in as ${currentUser.email}. Click to sync.` : 'Sign in or create account to sync to cloud'}
+          title={currentUser ? `Signed in as ${currentUser.email || 'Athlete'}. Click to sync.` : 'Sign in or create account to sync to cloud'}
         >
           {isCloudSyncing ? (
             <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} />

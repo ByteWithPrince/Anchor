@@ -7,6 +7,57 @@ import { WORKOUT_PRESETS } from '../data/workoutPresets';
 
 export const roundMacro = (val) => Math.round((Number(val) || 0) * 10) / 10;
 
+/**
+ * Validates and repairs corrupted outlier food macros (e.g. 3122g carbs or zero-macro entries).
+ */
+export const sanitizeFoodItem = (item) => {
+  if (!item || typeof item !== 'object') return item;
+  let calories = Number(item.calories) || 0;
+  let protein = Number(item.protein) || 0;
+  let carbs = Number(item.carbs) || 0;
+  let fat = Number(item.fat) || 0;
+  const name = String(item.name || '').trim();
+  const lower = name.toLowerCase();
+
+  // Outlier detection: Impossible single-item macros (carbs > 400, protein > 300, fat > 300)
+  // or zero-macro item with calories
+  const isCorruptedOutlier = carbs > 400 || protein > 300 || fat > 300;
+  const isZeroMacroWithCalories = calories > 0 && protein === 0 && carbs === 0 && fat === 0;
+
+  if (isCorruptedOutlier || isZeroMacroWithCalories) {
+    if (lower.includes('egg')) {
+      // Sensible egg repair (e.g. 2 whole eggs ~ 144 kcal, 12.6g P, 1.1g C, 9.5g F)
+      calories = 144;
+      protein = 12.6;
+      carbs = 1.1;
+      fat = 9.5;
+    } else if (lower.includes('snack') || lower.includes('mix') || lower.includes('ranch') || lower.includes('guacamole')) {
+      // Sensible snack mix repair: ~150 kcal, 4g P, 18g C, 7g F per serving
+      calories = calories > 0 ? calories : 150;
+      protein = roundMacro((calories * 0.10) / 4);
+      carbs = roundMacro((calories * 0.50) / 4);
+      fat = roundMacro((calories * 0.40) / 9);
+    } else {
+      if (calories > 0) {
+        protein = roundMacro((calories * 0.25) / 4);
+        carbs = roundMacro((calories * 0.50) / 4);
+        fat = roundMacro((calories * 0.25) / 9);
+      } else {
+        calories = Math.round((protein * 4) + (carbs * 4) + (fat * 9));
+      }
+    }
+  }
+
+  return {
+    ...item,
+    name,
+    calories: roundMacro(calories),
+    protein: roundMacro(protein),
+    carbs: roundMacro(carbs),
+    fat: roundMacro(fat)
+  };
+};
+
 export const getTodayStr = (offsetDays = 0) => {
   const d = new Date();
   if (offsetDays) d.setDate(d.getDate() + offsetDays);
@@ -111,26 +162,22 @@ export const useStore = create(
       activePresetId: 'ppl-6day',
       lastCompletedRoutineName: null,
 
-      // Multi-User Profile State
+      // Single-User Athlete Profile State
       profiles: [
-        {
-          id: 'user-1',
-          name: 'Kalendra (Athlete)',
-          role: 'Hypertrophy & Strength',
-          weight: 72,
-          targetCalories: 2500,
-          avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80'
-        },
-        {
-          id: 'user-2',
-          name: 'Alex Rivera',
-          role: 'Hybrid Athlete',
-          weight: 82,
-          targetCalories: 2900,
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80'
-        }
+        (() => {
+          const u = authService.getStoredUser();
+          return {
+            id: u?.id || 'athlete-1',
+            name: u?.name || 'Athlete',
+            email: u?.email || '',
+            role: u?.role || 'Strength & Hypertrophy',
+            weight: u?.weight || 75,
+            targetCalories: u?.targetCalories || 2500,
+            avatar: u?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(u?.name || 'Athlete')}`
+          };
+        })()
       ],
-      activeProfileId: 'user-1',
+      activeProfileId: authService.getStoredUser()?.id || 'athlete-1',
       userDataByProfile: {},
 
       // Cloud Authentication State
@@ -141,7 +188,7 @@ export const useStore = create(
 
       persistCurrentUserData: () => {
         const state = get();
-        const profileId = state.activeProfileId || state.currentUser?.id || 'user-1';
+        const profileId = state.activeProfileId || state.currentUser?.id || 'athlete-1';
         const snapshot = {
           workoutLogs: state.workoutLogs,
           foodLogs: state.foodLogs,
@@ -179,26 +226,25 @@ export const useStore = create(
 
         const { token, user } = await authService.login(email, password, guestData);
 
-        // Snapshot prior profile if any
-        if (state.activeProfileId && state.activeProfileId !== user.id) {
-          state.persistCurrentUserData();
-        }
-
         const userProfile = {
           id: user.id,
-          name: user.name,
-          role: user.role || 'Athlete',
+          name: user.name || 'Athlete',
+          role: user.role || 'Strength & Hypertrophy',
           email: user.email,
-          weight: 75,
-          targetCalories: 2500,
+          weight: user.weight || 75,
+          targetCalories: user.targetCalories || 2500,
           avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
         };
+
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('anchor_session_unlocked', 'true');
+        }
 
         set({
           authToken: token,
           currentUser: user,
           activeProfileId: user.id,
-          profiles: [...state.profiles.filter(p => p.id !== user.id), userProfile],
+          profiles: [userProfile],
           activeWorkout: null,
           isSetupComplete: true
         });
@@ -221,26 +267,26 @@ export const useStore = create(
 
         const { token, user } = await authService.register(email, password, name, role, guestData);
 
-        if (state.activeProfileId) {
-          state.persistCurrentUserData();
-        }
-
         const cleanData = createDefaultUserData(2500);
         const newProfile = {
           id: user.id,
-          name: user.name,
-          role: user.role || 'Athlete',
+          name: user.name || name || 'Athlete',
+          role: user.role || role || 'Strength & Hypertrophy',
           email: user.email,
           weight: 75,
           targetCalories: 2500,
-          avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
+          avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name || name)}`
         };
+
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('anchor_session_unlocked', 'true');
+        }
 
         set({
           authToken: token,
           currentUser: user,
           activeProfileId: user.id,
-          profiles: [...state.profiles.filter(p => p.id !== user.id), newProfile],
+          profiles: [newProfile],
           userDataByProfile: {
             ...state.userDataByProfile,
             [user.id]: cleanData
@@ -266,25 +312,25 @@ export const useStore = create(
 
         const { token, user } = await authService.loginWithGoogle({ credential, email, name, googleId, avatar, guestData });
 
-        if (state.activeProfileId && state.activeProfileId !== user.id) {
-          state.persistCurrentUserData();
-        }
-
         const userProfile = {
           id: user.id,
-          name: user.name,
-          role: user.role || 'Athlete',
+          name: user.name || name || 'Athlete',
+          role: user.role || 'Strength & Hypertrophy',
           email: user.email,
-          weight: 75,
-          targetCalories: 2500,
-          avatar: user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name)}`
+          weight: user.weight || 75,
+          targetCalories: user.targetCalories || 2500,
+          avatar: user.avatar || avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.name || name)}`
         };
+
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('anchor_session_unlocked', 'true');
+        }
 
         set({
           authToken: token,
           currentUser: user,
           activeProfileId: user.id,
-          profiles: [...state.profiles.filter(p => p.id !== user.id), userProfile],
+          profiles: [userProfile],
           activeWorkout: null,
           isSetupComplete: true
         });
@@ -308,6 +354,10 @@ export const useStore = create(
         authService.setToken('guest-offline-token');
         authService.setStoredUser(guestUser);
 
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('anchor_session_unlocked', 'true');
+        }
+
         const state = get();
         const existingData = state.userDataByProfile[guestId] || createDefaultUserData(2500);
 
@@ -325,7 +375,7 @@ export const useStore = create(
           authToken: 'guest-offline-token',
           currentUser: guestUser,
           activeProfileId: guestId,
-          profiles: [...state.profiles.filter(p => p.id !== guestId), guestProfile],
+          profiles: [guestProfile],
           userDataByProfile: {
             ...state.userDataByProfile,
             [guestId]: existingData
@@ -355,11 +405,26 @@ export const useStore = create(
         syncEngine.flush().catch(() => {});
         authService.logout();
 
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('anchor_session_unlocked');
+        }
+
+        const defaultProf = {
+          id: 'athlete-1',
+          name: 'Athlete',
+          email: '',
+          role: 'Strength & Hypertrophy',
+          weight: 75,
+          targetCalories: 2500,
+          avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Athlete'
+        };
+
         const defaultData = createDefaultUserData(2500);
         set({
           authToken: null,
           currentUser: null,
-          activeProfileId: 'guest-athlete',
+          activeProfileId: 'athlete-1',
+          profiles: [defaultProf],
           activeWorkout: null,
           workoutLogs: [],
           foodLogs: [],
@@ -618,7 +683,62 @@ export const useStore = create(
 
       getActiveProfile: () => {
         const state = get();
-        return state.profiles.find(p => p.id === state.activeProfileId) || state.profiles[0];
+        const profilesList = Array.isArray(state?.profiles) ? state.profiles.filter(Boolean) : [];
+        if (profilesList.length > 0) {
+          return profilesList.find(p => p?.id === state?.activeProfileId) || profilesList[0];
+        }
+        return {
+          id: state?.currentUser?.id || 'athlete-1',
+          name: state?.currentUser?.name || 'Athlete',
+          email: state?.currentUser?.email || '',
+          role: state?.currentUser?.role || 'Strength & Hypertrophy',
+          weight: 75,
+          targetCalories: 2500,
+          avatar: state?.currentUser?.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=Athlete'
+        };
+      },
+
+      updateUserProfile: ({ name, email, role, weight, targetCalories }) => {
+        const state = get();
+        const active = state.getActiveProfile();
+        const updatedProfile = {
+          ...active,
+          name: name !== undefined ? String(name).trim() : active.name,
+          email: email !== undefined ? String(email).trim() : active.email,
+          role: role !== undefined ? role : active.role,
+          weight: weight !== undefined ? Number(weight) : active.weight,
+          targetCalories: targetCalories !== undefined ? Number(targetCalories) : active.targetCalories
+        };
+
+        const updatedUser = state.currentUser ? {
+          ...state.currentUser,
+          name: updatedProfile.name,
+          email: updatedProfile.email || state.currentUser.email,
+          role: updatedProfile.role,
+          weight: updatedProfile.weight,
+          targetCalories: updatedProfile.targetCalories
+        } : null;
+
+        if (updatedUser) {
+          authService.setStoredUser(updatedUser);
+        }
+
+        const updatedPlan = {
+          ...state.plan,
+          macroTargets: {
+            ...state.plan?.macroTargets,
+            calories: updatedProfile.targetCalories
+          }
+        };
+
+        set({
+          profiles: [updatedProfile],
+          activeProfileId: updatedProfile.id,
+          currentUser: updatedUser,
+          plan: updatedPlan
+        });
+
+        get().persistCurrentUserData();
       },
 
       switchProfile: (newProfileId) => {
@@ -675,43 +795,12 @@ export const useStore = create(
           avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name)}`
         };
 
-        set(state => ({
-          profiles: [...state.profiles, newProfile]
-        }));
-
-        get().switchProfile(newId);
-      },
-
-      exportData: () => {
-        const state = get();
-        return JSON.stringify({
-          profiles: state.profiles,
-          activeProfileId: state.activeProfileId,
-          userDataByProfile: state.userDataByProfile,
-          current: {
-            workoutLogs: state.workoutLogs,
-            foodLogs: state.foodLogs,
-            weightLogs: state.weightLogs,
-            plan: state.plan
-          }
-        }, null, 2);
-      },
-
-      hydrateFromArchive: (archiveData) => {
-        if (!archiveData || typeof archiveData !== 'object') return false;
-        const state = get();
         set({
-          workoutLogs: Array.isArray(archiveData.workouts) ? archiveData.workouts : state.workoutLogs,
-          foodLogs: Array.isArray(archiveData.nutritionLogs) ? archiveData.nutritionLogs : state.foodLogs,
-          plan: archiveData.trainingPlan || state.plan,
-          customRoutines: Array.isArray(archiveData.customRoutines) ? archiveData.customRoutines : state.customRoutines,
-          weightLogs: Array.isArray(archiveData.bodyweightLogs) ? archiveData.bodyweightLogs : state.weightLogs,
-          cardioLogs: Array.isArray(archiveData.gpsTelemetry) ? archiveData.gpsTelemetry : state.cardioLogs
+          profiles: [newProfile],
+          activeProfileId: newId
         });
-        get().persistCurrentUserData();
-        return true;
       },
-      
+
       completeSetup: () => set({ isSetupComplete: true }),
       
       updatePlan: (newPlan) => {
@@ -998,14 +1087,15 @@ export const useStore = create(
       },
       
       addFoodLog: (foodData) => {
+        const sanitized = sanitizeFoodItem(foodData);
         const newFood = {
           id: crypto.randomUUID(),
           date: getTodayStr(),
-          ...foodData,
-          calories: roundMacro(foodData.calories),
-          protein: roundMacro(foodData.protein),
-          carbs: roundMacro(foodData.carbs),
-          fat: roundMacro(foodData.fat),
+          ...sanitized,
+          calories: roundMacro(sanitized.calories),
+          protein: roundMacro(sanitized.protein),
+          carbs: roundMacro(sanitized.carbs),
+          fat: roundMacro(sanitized.fat),
           timestamp: Date.now(),
           updatedAt: Date.now()
         };
@@ -1437,6 +1527,52 @@ export const useStore = create(
     {
       name: 'anchor-storage-v3', // bumped for isSetupComplete and activeWorkout
       storage: createJSONStorage(() => idbStorage),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        // Purge dummy/extra profiles and ensure only single active user profile remains
+        const storedUser = authService.getStoredUser() || state.currentUser;
+        const rawProfiles = Array.isArray(state?.profiles) ? state.profiles : [];
+        const validProfiles = rawProfiles.filter(p => {
+          if (!p) return false;
+          const n = (p.name || '').toLowerCase();
+          return !n.includes('kalendra') && !n.includes('alex rivera') && !n.includes('aditya') && !n.includes('jrodan');
+        });
+
+        let singleProfile;
+        if (storedUser) {
+          singleProfile = {
+            id: storedUser.id || 'athlete-1',
+            name: storedUser.name || 'Athlete',
+            email: storedUser.email || '',
+            role: storedUser.role || validProfiles[0]?.role || 'Strength & Hypertrophy',
+            weight: storedUser.weight || validProfiles[0]?.weight || 75,
+            targetCalories: storedUser.targetCalories || validProfiles[0]?.targetCalories || 2500,
+            avatar: storedUser.avatar || validProfiles[0]?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(storedUser.name || 'Athlete')}`
+          };
+        } else if (validProfiles.length > 0 && validProfiles[0]) {
+          singleProfile = validProfiles[0];
+        } else {
+          singleProfile = {
+            id: 'athlete-1',
+            name: 'Athlete',
+            email: '',
+            role: 'Strength & Hypertrophy',
+            weight: 75,
+            targetCalories: 2500,
+            avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Athlete'
+          };
+        }
+
+        // Sanitize any corrupted historical food entries (e.g. 3122g carbs or zero-macro entries)
+        const rawFoods = Array.isArray(state?.foodLogs) ? state.foodLogs : [];
+        const sanitizedFoods = rawFoods.filter(Boolean).map(item => sanitizeFoodItem(item));
+
+        useStore.setState({
+          profiles: [singleProfile],
+          activeProfileId: singleProfile.id,
+          foodLogs: sanitizedFoods
+        });
+      }
     }
   )
 );

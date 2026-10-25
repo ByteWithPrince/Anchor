@@ -21,11 +21,13 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
   const loginGuest = useStore(s => s.loginGuest);
 
   // Sync mode whenever initialMode prop changes
-  useEffect(() => {
+  const [prevInitialMode, setPrevInitialMode] = useState(initialMode);
+  if (prevInitialMode !== initialMode) {
+    setPrevInitialMode(initialMode);
     setMode(initialMode);
     setErrors({});
     setGeneralError('');
-  }, [initialMode]);
+  }
 
   // Keyboard ESC listener
   useEffect(() => {
@@ -37,26 +39,33 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Dynamic Google Identity Services (GIS) script integration
+  // Google Identity Services (GIS) One-Tap / ID Token initialization
   useEffect(() => {
     const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
     if (!isOpen || !googleClientId) return;
 
-    const initGsi = () => {
+    const setupGsi = () => {
       try {
         if (window.google?.accounts?.id) {
           window.google.accounts.id.initialize({
             client_id: googleClientId,
+            auto_select: false,
             callback: async (response) => {
               if (response.credential) {
                 setLoading(true);
+                setGeneralError('');
                 try {
                   await loginWithGoogle({ credential: response.credential });
                   onClose();
                   if (onSuccess) onSuccess();
                   else navigate('/dashboard');
                 } catch (err) {
-                  setGeneralError(err.message || 'Google sign-in failed.');
+                  const isOffline = err.name === 'TypeError' ||
+                    err.message?.includes('Failed to fetch') ||
+                    err.message?.includes('JSON') ||
+                    err.message?.includes(':5001') ||
+                    err.message?.includes('NetworkError');
+                  setGeneralError(isOffline ? "Backend server (:5001) is not running. Start the backend or continue in 100% Offline Local Mode." : (err.message || 'Google sign-in failed.'));
                 } finally {
                   setLoading(false);
                 }
@@ -69,18 +78,18 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
       }
     };
 
-    if (!document.getElementById('anchor-google-gsi')) {
-      const script = document.createElement('script');
-      script.id = 'anchor-google-gsi';
-      script.src = 'https://accounts.google.com/gsi/client';
-      script.async = true;
-      script.defer = true;
-      script.onload = initGsi;
-      document.body.appendChild(script);
+    if (window.google?.accounts?.id) {
+      setupGsi();
     } else {
-      initGsi();
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id) {
+          clearInterval(interval);
+          setupGsi();
+        }
+      }, 150);
+      return () => clearInterval(interval);
     }
-  }, [isOpen]);
+  }, [isOpen, loginWithGoogle, onClose, onSuccess, navigate]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 
@@ -119,6 +128,9 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
       } else {
         await registerUser(email, password, name, role);
       }
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('anchor_session_unlocked', 'true');
+      }
       onClose();
       if (onSuccess) {
         onSuccess();
@@ -126,7 +138,12 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
         navigate('/dashboard');
       }
     } catch (err) {
-      setGeneralError(err.message || 'Authentication failed. Please check your credentials.');
+      const isOffline = err.name === 'TypeError' ||
+        err.message?.includes('Failed to fetch') ||
+        err.message?.includes('JSON') ||
+        err.message?.includes(':5001') ||
+        err.message?.includes('NetworkError');
+      setGeneralError(isOffline ? "Backend server (:5001) is not running. Start the backend or continue in 100% Offline Local Mode." : (err.message || 'Authentication failed. Please check your credentials.'));
     } finally {
       setLoading(false);
     }
@@ -136,37 +153,103 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
     setGeneralError('');
     const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
-    // Trigger official Google GIS prompt if Client ID is configured
-    if (googleClientId && window.google?.accounts?.id) {
-      try {
-        window.google.accounts.id.prompt();
-        return;
-      } catch (e) {
-        console.warn('[GIS] Prompt fallback:', e);
-      }
+    // 1. Verify Client ID is present
+    if (!googleClientId) {
+      setGeneralError('Google Client ID is missing. Ensure VITE_GOOGLE_CLIENT_ID is set in .env.');
+      return;
     }
 
-    // Graceful developer & offline fallback flow
-    setLoading(true);
-    try {
-      const googleEmail = email.trim() || 'athlete.google@gmail.com';
-      const googleName = name.trim() || googleEmail.split('@')[0].replace(/[._]/g, ' ');
-      await loginWithGoogle({
-        email: googleEmail,
-        name: googleName.charAt(0).toUpperCase() + googleName.slice(1),
-        googleId: `gid_${Date.now()}`,
-        avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(googleEmail)}`
-      });
+    // 2. Verify Google Identity Services script is available
+    if (!window.google?.accounts) {
+      setGeneralError('Google Identity Services script is not loaded or is blocked. Check your connection or ad blocker.');
+      return;
+    }
 
-      onClose();
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        navigate('/dashboard');
+    setLoading(true);
+
+    try {
+      // 3. Prefer GIS OAuth2 token client for custom button click (direct interactive popup)
+      if (window.google.accounts.oauth2?.initTokenClient) {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: googleClientId,
+          scope: 'email profile openid',
+          callback: async (tokenResponse) => {
+            if (tokenResponse.error) {
+              setGeneralError(`Google sign-in error: ${tokenResponse.error_description || tokenResponse.error}`);
+              setLoading(false);
+              return;
+            }
+
+            try {
+              let profile = {};
+              if (tokenResponse.access_token) {
+                try {
+                  const uRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+                  });
+                  if (uRes.ok) {
+                    const text = await uRes.text();
+                    try { profile = text ? JSON.parse(text) : {}; } catch { profile = {}; }
+                  }
+                } catch (uErr) {
+                  console.warn('[GIS] Profile fetch notice:', uErr.message);
+                }
+              }
+
+              await loginWithGoogle({
+                credential: tokenResponse.access_token,
+                token: tokenResponse.access_token,
+                email: profile.email,
+                name: profile.name,
+                avatar: profile.picture,
+                googleId: profile.sub
+              });
+
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('anchor_session_unlocked', 'true');
+              }
+
+              onClose();
+              if (onSuccess) onSuccess();
+              else navigate('/dashboard');
+            } catch (err) {
+              const isOffline = err.name === 'TypeError' ||
+                err.message?.includes('Failed to fetch') ||
+                err.message?.includes('JSON') ||
+                err.message?.includes(':5001') ||
+                err.message?.includes('NetworkError');
+              setGeneralError(isOffline ? "Backend server (:5001) is not running. Start the backend or continue in 100% Offline Local Mode." : (err.message || 'Google sign-in failed.'));
+            } finally {
+              setLoading(false);
+            }
+          }
+        });
+
+        tokenClient.requestAccessToken();
+        return;
       }
+
+      // 4. Fallback to One-Tap prompt if OAuth2 client is not loaded
+      if (window.google.accounts.id?.prompt) {
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setLoading(false);
+            const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || 'Prompt suppressed';
+            console.warn('[GIS] One-tap notice:', reason);
+            setGeneralError(`Google prompt was suppressed (${reason}). Try signing in with email or continue offline.`);
+          }
+        });
+        return;
+      }
+
+      throw new Error('Google Identity Services client is unavailable.');
     } catch (err) {
-      setGeneralError(err.message || 'Google authentication failed.');
-    } finally {
+      const isOffline = err.name === 'TypeError' ||
+        err.message?.includes('Failed to fetch') ||
+        err.message?.includes('JSON') ||
+        err.message?.includes(':5001') ||
+        err.message?.includes('NetworkError');
+      setGeneralError(isOffline ? "Backend server (:5001) is not running. Start the backend or continue in 100% Offline Local Mode." : (err.message || 'Google authentication failed.'));
       setLoading(false);
     }
   };
@@ -246,18 +329,18 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
             width: '30px',
             height: '30px',
             borderRadius: '10px',
-            background: 'linear-gradient(135deg, #00D09C 0%, #00B285 100%)',
+            background: 'linear-gradient(135deg, #FF7243 0%, #FF8F6B 100%)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#0D0D0D',
+            color: '#FFFFFF',
             fontWeight: 800,
             fontSize: '15px',
-            boxShadow: '0 4px 14px rgba(0, 208, 156, 0.35)'
+            boxShadow: '0 4px 14px rgba(255, 114, 67, 0.35)'
           }}>
             ⚓
           </div>
-          <span style={{ fontSize: '12px', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', color: '#00D09C' }}>
+          <span style={{ fontSize: '12px', fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', color: '#FF7243' }}>
             Anchor Cloud Sync
           </span>
         </div>
@@ -323,15 +406,15 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
 
         {generalError && (
           <div style={{
-            backgroundColor: 'rgba(255, 114, 67, 0.12)',
-            border: '1px solid rgba(255, 114, 67, 0.3)',
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
             borderRadius: '14px',
             padding: '12px 16px',
             marginBottom: '20px',
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
-            color: '#FF7243',
+            color: '#EF4444',
             fontSize: '13px'
           }}>
             <AlertCircle size={16} style={{ flexShrink: 0 }} />
@@ -351,7 +434,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                   display: 'flex',
                   alignItems: 'center',
                   padding: '0 14px',
-                  border: errors.name ? '1px solid #FF7243' : undefined
+                  border: errors.name ? '1px solid #EF4444' : undefined
                 }}
               >
                 <User size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
@@ -374,7 +457,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                   }}
                 />
               </div>
-              {errors.name && <span style={{ color: '#FF7243', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.name}</span>}
+              {errors.name && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.name}</span>}
             </div>
           )}
 
@@ -424,7 +507,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 display: 'flex',
                 alignItems: 'center',
                 padding: '0 14px',
-                border: errors.email ? '1px solid #FF7243' : undefined
+                border: errors.email ? '1px solid #EF4444' : undefined
               }}
             >
               <Mail size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
@@ -447,7 +530,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 }}
               />
             </div>
-            {errors.email && <span style={{ color: '#FF7243', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.email}</span>}
+            {errors.email && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.email}</span>}
           </div>
 
           <div style={{ marginBottom: '24px' }}>
@@ -460,7 +543,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 display: 'flex',
                 alignItems: 'center',
                 padding: '0 14px',
-                border: errors.password ? '1px solid #FF7243' : undefined
+                border: errors.password ? '1px solid #EF4444' : undefined
               }}
             >
               <Lock size={16} color="#8E8E93" style={{ marginRight: '10px', flexShrink: 0 }} />
@@ -483,7 +566,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
                 }}
               />
             </div>
-            {errors.password && <span style={{ color: '#FF7243', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.password}</span>}
+            {errors.password && <span style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px', display: 'block' }}>{errors.password}</span>}
           </div>
 
           <button
@@ -491,7 +574,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
             disabled={loading}
             style={{
               width: '100%',
-              backgroundColor: '#00D09C',
+              backgroundColor: '#10B981',
               color: '#0D0D0D',
               padding: '16px',
               borderRadius: '14px',
@@ -567,6 +650,9 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
             type="button"
             onClick={() => {
               loginGuest();
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('anchor_session_unlocked', 'true');
+              }
               onClose();
               if (onSuccess) onSuccess();
               else navigate('/dashboard');
@@ -587,7 +673,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', onSu
               cursor: 'pointer'
             }}
           >
-            <ShieldCheck size={16} color="#00D09C" />
+            <ShieldCheck size={16} color="#10B981" />
             <span>Continue in 100% Offline Local Mode</span>
             <ArrowRight size={14} />
           </button>

@@ -343,28 +343,48 @@ router.post('/login', validateLogin, async (req, res) => {
 // 2.5 Real Google Sign-In & GIS Token Verification
 router.post('/google', validateGoogleAuth, async (req, res) => {
   try {
-    const { credential, email, name, avatar, googleId, guestData } = req.body;
+    const { credential, token: clientToken, access_token, email, name, avatar, googleId, guestData } = req.body;
     let verifiedEmail = email;
     let verifiedName = name;
     let verifiedAvatar = avatar;
     let verifiedGoogleId = googleId;
 
-    // Server-side verification of Google Identity Services (GIS) ID Token
-    if (credential) {
+    const googleToken = credential || clientToken || access_token;
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+
+    // Server-side verification of Google Identity Services (GIS) Token
+    if (googleToken) {
       try {
-        const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`;
+        // 1. First try ID Token verification
+        const verifyUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(googleToken)}`;
         const gRes = await fetch(verifyUrl);
         if (gRes.ok) {
           const gPayload = await gRes.json();
-          verifiedEmail = gPayload.email;
+          if (clientId && gPayload.aud && gPayload.aud !== clientId) {
+            console.warn('[Google Auth] Token audience mismatch warning. Audience:', gPayload.aud, 'Client ID:', clientId);
+          }
+          verifiedEmail = gPayload.email || verifiedEmail;
           verifiedName = gPayload.name || verifiedName;
           verifiedAvatar = gPayload.picture || verifiedAvatar;
           verifiedGoogleId = gPayload.sub || verifiedGoogleId;
         } else {
-          console.warn('[Google Auth] Tokeninfo verification failed, using client payload fallback if allowed');
+          // 2. Fallback: try UserInfo endpoint if access_token was passed
+          const userinfoUrl = 'https://www.googleapis.com/oauth2/v3/userinfo';
+          const uRes = await fetch(userinfoUrl, {
+            headers: { Authorization: `Bearer ${googleToken}` }
+          });
+          if (uRes.ok) {
+            const uPayload = await uRes.json();
+            verifiedEmail = uPayload.email || verifiedEmail;
+            verifiedName = uPayload.name || verifiedName;
+            verifiedAvatar = uPayload.picture || verifiedAvatar;
+            verifiedGoogleId = uPayload.sub || verifiedGoogleId;
+          } else {
+            console.warn('[Google Auth] Tokeninfo verification failed, using client payload fallback if allowed');
+          }
         }
       } catch (gErr) {
-        console.warn('[Google Auth] Network call to Google tokeninfo failed (offline dev mode active):', gErr.message);
+        console.warn('[Google Auth] Network call to Google verification failed (offline dev mode active):', gErr.message);
       }
     }
 
@@ -483,8 +503,38 @@ router.post('/refresh', (req, res) => {
     const tokenHashed = hashToken(tokenToVerify);
     const existingToken = db.prepare('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(tokenHashed);
 
+    // Check for token rotation grace period (concurrent requests e.g. React StrictMode)
+    if (existingToken && existingToken.revoked_at) {
+      const elapsed = Date.now() - existingToken.revoked_at;
+      if (elapsed < 5000) {
+        // Within 5s grace window: return valid token without revoking sessions
+        const user = db.prepare('SELECT id, email, name, role, avatar, token_version FROM users WHERE id = ?').get(existingToken.user_id);
+        if (!user) {
+          clearRefreshTokenCookie(res);
+          return res.status(401).json({ error: 'User no longer exists' });
+        }
+        const token = generateAccessToken({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          tokenVersion: user.token_version || 1
+        });
+        return res.json({
+          token,
+          user
+        });
+      } else {
+        // Reused after grace period -> Token theft
+        console.warn(`[Security Alert] Reused refresh token detected for userId: ${decoded.userId}. Revoking all sessions.`);
+        db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(decoded.userId);
+        clearRefreshTokenCookie(res);
+        return res.status(401).json({ error: 'Session compromised. All sessions revoked.', code: 'TOKEN_THEFT_DETECTED' });
+      }
+    }
+
     if (!existingToken) {
-      // Possible Token Theft: token was already rotated/used!
+      // Possible Token Theft: token was already rotated/purged!
       console.warn(`[Security Alert] Reused refresh token detected for userId: ${decoded.userId}. Revoking all sessions.`);
       db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(decoded.userId);
       clearRefreshTokenCookie(res);
@@ -503,9 +553,7 @@ router.post('/refresh', (req, res) => {
       return res.status(404).json({ error: 'User no longer exists' });
     }
 
-    // Rotate: Invalidate used token and issue a fresh pair
-    db.prepare('DELETE FROM refresh_tokens WHERE id = ?').run(existingToken.id);
-
+    // Rotate: Mark used token as revoked with grace window timestamp and issue a fresh pair
     const newAccessToken = generateAccessToken({
       userId: user.id,
       email: user.email,
@@ -514,6 +562,14 @@ router.post('/refresh', (req, res) => {
       tokenVersion: user.token_version || 1
     });
     const newRefreshToken = createRefreshTokenRecord(user.id, req);
+    const now = Date.now();
+    db.prepare('UPDATE refresh_tokens SET revoked_at = ?, replaced_by = ? WHERE id = ?').run(now, hashToken(newRefreshToken), existingToken.id);
+
+    // Prune revoked tokens older than 1 minute
+    try {
+      db.prepare('DELETE FROM refresh_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?').run(now - 60000);
+    } catch {}
+
     setRefreshTokenCookie(res, newRefreshToken);
 
     res.json({

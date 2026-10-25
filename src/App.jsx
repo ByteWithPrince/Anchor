@@ -61,10 +61,11 @@ function RouteSkeleton() {
 function ProtectedRoute({ children }) {
   const currentUser = useStore(state => state.currentUser);
   const authToken = useStore(state => state.authToken);
-  const isAuthenticated = Boolean(currentUser && authToken);
+  const isSessionUnlocked = typeof window !== 'undefined' && sessionStorage.getItem('anchor_session_unlocked') === 'true';
+  const isAuthenticated = Boolean(currentUser && authToken && isSessionUnlocked);
 
   if (!isAuthenticated) {
-    return <Navigate to="/welcome" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return children;
@@ -121,41 +122,41 @@ function App() {
       <div className="app-container" style={{ paddingBottom: '80px' }}>
         <Suspense fallback={<RouteSkeleton />}>
           <Routes>
-            {/* Primary Dashboard Route (Eagerly Loaded) */}
-            <Route path="/" element={<Home />} />
-            <Route path="/dashboard" element={<Home />} />
-
-            {/* Public Landing & Onboarding */}
+            {/* Public Root & Landing Page */}
+            <Route path="/" element={<Landing />} />
             <Route path="/welcome" element={<Landing />} />
             <Route path="/landing" element={<Landing />} />
 
+            {/* Protected Cockpit / Dashboard Route */}
+            <Route path="/dashboard" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+
             {/* Workout Routes */}
-            <Route path="/workout/overview" element={<WorkoutOverview />} />
-            <Route path="/workout-overview" element={<WorkoutOverview />} />
-            <Route path="/workout/log" element={<LogWorkout />} />
-            <Route path="/log-workout" element={<LogWorkout />} />
-            <Route path="/workouts" element={<WorkoutOverview />} />
-            <Route path="/workout/complete" element={<WorkoutComplete />} />
-            <Route path="/workout-complete" element={<WorkoutComplete />} />
+            <Route path="/workout/overview" element={<ProtectedRoute><WorkoutOverview /></ProtectedRoute>} />
+            <Route path="/workout-overview" element={<ProtectedRoute><WorkoutOverview /></ProtectedRoute>} />
+            <Route path="/workout/log" element={<ProtectedRoute><LogWorkout /></ProtectedRoute>} />
+            <Route path="/log-workout" element={<ProtectedRoute><LogWorkout /></ProtectedRoute>} />
+            <Route path="/workouts" element={<ProtectedRoute><WorkoutOverview /></ProtectedRoute>} />
+            <Route path="/workout/complete" element={<ProtectedRoute><WorkoutComplete /></ProtectedRoute>} />
+            <Route path="/workout-complete" element={<ProtectedRoute><WorkoutComplete /></ProtectedRoute>} />
 
             {/* Nutrition Routes */}
-            <Route path="/nutrition/log" element={<LogFood />} />
-            <Route path="/log-food" element={<LogFood />} />
-            <Route path="/nutrition" element={<LogFood />} />
+            <Route path="/nutrition/log" element={<ProtectedRoute><LogFood /></ProtectedRoute>} />
+            <Route path="/log-food" element={<ProtectedRoute><LogFood /></ProtectedRoute>} />
+            <Route path="/nutrition" element={<ProtectedRoute><LogFood /></ProtectedRoute>} />
 
             {/* Plan Builder & Scheduling */}
-            <Route path="/plan" element={<PlanBuilder />} />
-            <Route path="/schedule" element={<PlanBuilder />} />
+            <Route path="/plan" element={<ProtectedRoute><PlanBuilder /></ProtectedRoute>} />
+            <Route path="/schedule" element={<ProtectedRoute><PlanBuilder /></ProtectedRoute>} />
 
             {/* Progress & Analytics */}
-            <Route path="/progress" element={<Progress />} />
-            <Route path="/statistics" element={<Progress />} />
+            <Route path="/progress" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
+            <Route path="/statistics" element={<ProtectedRoute><Progress /></ProtectedRoute>} />
 
             {/* Saved Templates */}
-            <Route path="/templates" element={<SavedTemplates />} />
-            <Route path="/saved" element={<SavedTemplates />} />
+            <Route path="/templates" element={<ProtectedRoute><SavedTemplates /></ProtectedRoute>} />
+            <Route path="/saved" element={<ProtectedRoute><SavedTemplates /></ProtectedRoute>} />
 
-            {/* Legal & Informational */}
+            {/* Legal & Informational (Public) */}
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/thank-you" element={<ThankYou />} />

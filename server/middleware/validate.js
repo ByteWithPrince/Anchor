@@ -40,10 +40,10 @@ export function validateLogin(req, res, next) {
 }
 
 export function validateGoogleAuth(req, res, next) {
-  const { credential, email } = req.body || {};
+  const { credential, token, access_token, email } = req.body || {};
 
-  // Accepts either Google GIS ID token (credential) or legacy/fallback email payload
-  if (!credential && !email) {
+  // Accepts Google GIS token (credential, token, or access_token) or verified email payload
+  if (!credential && !token && !access_token && !email) {
     return res.status(400).json({ error: 'Google credential or verified email is required' });
   }
 
